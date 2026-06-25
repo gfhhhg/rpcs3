@@ -1,4 +1,4 @@
-name: cdBuild RPCS3
+name: Build RPCS3
 
 defaults:
   run:
@@ -6,12 +6,12 @@ defaults:
 on:
   push:
     branches:
-      - master # Only trigger push event on 'master' branch
+      - master
   pull_request:
   workflow_dispatch:
     inputs:
       build_target:
-        description: '选择要构建的平台 (留空则构建全部)'
+        description: '选择要构建的平台'
         required: false
         default: 'all'
         type: choice
@@ -25,7 +25,7 @@ on:
       linux_arch:
         description: 'Linux 架构 (仅当 build_target=linux 时生效)'
         required: false
-        default: 'x86_64'
+        default: 'both'
         type: choice
         options:
           - x86_64
@@ -50,9 +50,9 @@ on:
           - arm64
           - both
       windows_arch:
-        description: 'Windows 架构 (仅当 build_target=windows 时生效)'
+        description: 'Windows Clang 架构 (仅当 build_target=windows-clang 时生效)'
         required: false
-        default: 'x64'
+        default: 'both'
         type: choice
         options:
           - x64
@@ -71,8 +71,8 @@ env:
   BUILD_ARTIFACTSTAGINGDIRECTORY: ${{ github.workspace }}/artifacts/
 
 jobs:
-  # ============ 条件判断辅助 ============
-  should_build:
+  # ============ 条件判断辅助 Job ============
+  check_build_targets:
     runs-on: ubuntu-latest
     outputs:
       build_linux: ${{ steps.check.outputs.build_linux }}
@@ -84,58 +84,96 @@ jobs:
       - name: Check build targets
         id: check
         run: |
-          TARGET="${{ github.event.inputs.build_target }}"
-          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
-            echo "build_linux=true" >> $GITHUB_OUTPUT
-            echo "build_mac=true" >> $GITHUB_OUTPUT
-            echo "build_windows=true" >> $GITHUB_OUTPUT
-            echo "build_windows_clang=true" >> $GITHUB_OUTPUT
-            echo "build_freebsd=true" >> $GITHUB_OUTPUT
-          else
-            echo "build_$TARGET=true" >> $GITHUB_OUTPUT
-          fi
+          TARGET="${{ github.event.inputs.build_target || 'all' }}"
+          echo "Target: $TARGET"
+          
+          case "$TARGET" in
+            all)
+              echo "build_linux=true" >> $GITHUB_OUTPUT
+              echo "build_mac=true" >> $GITHUB_OUTPUT
+              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=true" >> $GITHUB_OUTPUT
+              echo "build_freebsd=true" >> $GITHUB_OUTPUT
+              ;;
+            linux)
+              echo "build_linux=true" >> $GITHUB_OUTPUT
+              echo "build_mac=false" >> $GITHUB_OUTPUT
+              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=false" >> $GITHUB_OUTPUT
+              echo "build_freebsd=false" >> $GITHUB_OUTPUT
+              ;;
+            mac)
+              echo "build_linux=false" >> $GITHUB_OUTPUT
+              echo "build_mac=true" >> $GITHUB_OUTPUT
+              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=false" >> $GITHUB_OUTPUT
+              echo "build_freebsd=false" >> $GITHUB_OUTPUT
+              ;;
+            windows)
+              echo "build_linux=false" >> $GITHUB_OUTPUT
+              echo "build_mac=false" >> $GITHUB_OUTPUT
+              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=false" >> $GITHUB_OUTPUT
+              echo "build_freebsd=false" >> $GITHUB_OUTPUT
+              ;;
+            windows-clang)
+              echo "build_linux=false" >> $GITHUB_OUTPUT
+              echo "build_mac=false" >> $GITHUB_OUTPUT
+              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=true" >> $GITHUB_OUTPUT
+              echo "build_freebsd=false" >> $GITHUB_OUTPUT
+              ;;
+            freebsd)
+              echo "build_linux=false" >> $GITHUB_OUTPUT
+              echo "build_mac=false" >> $GITHUB_OUTPUT
+              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=false" >> $GITHUB_OUTPUT
+              echo "build_freebsd=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "build_linux=true" >> $GITHUB_OUTPUT
+              echo "build_mac=true" >> $GITHUB_OUTPUT
+              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_clang=true" >> $GITHUB_OUTPUT
+              echo "build_freebsd=true" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
   # ============ Linux Build ============
   Linux_Build:
-    needs: should_build
+    needs: check_build_targets
     if: |
-      (needs.should_build.outputs.build_linux == 'true') &&
+      needs.check_build_targets.outputs.build_linux == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(
-          github.event_name == 'workflow_dispatch' && github.event.inputs.build_target == 'linux' ?
-          (
-            github.event.inputs.linux_arch == 'both' && github.event.inputs.linux_compiler == 'both' ?
-              '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"d812f1254a1157c80fd402f94446310560f54e5f","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux"},{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"gcc"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux-arm64"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"gcc"}]' :
-            (
-              github.event.inputs.linux_arch == 'both' ?
-                (
-                  github.event.inputs.linux_compiler == 'clang' ?
-                    '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"d812f1254a1157c80fd402f94446310560f54e5f","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux-arm64"}]' :
-                    '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"gcc"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"gcc"}]'
-                ) :
-              (
-                github.event.inputs.linux_compiler == 'both' ?
-                  (
-                    github.event.inputs.linux_arch == 'x86_64' ?
-                      '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"d812f1254a1157c80fd402f94446310560f54e5f","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux"},{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"gcc"}]' :
-                      '[{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux-arm64"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"gcc"}]'
-                ) :
-                (
-                  github.event.inputs.linux_arch == 'x86_64' ?
-                    '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"'"${{ github.event.inputs.linux_compiler }}"'","UPLOAD_COMMIT_HASH":"d812f1254a1157c80fd402f94446310560f54e5f","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux"}]' :
-                    '[{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"'"${{ github.event.inputs.linux_compiler }}"'","UPLOAD_COMMIT_HASH":"a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux-arm64"}]'
-                )
-            )
-          ) :
-          (
-            # 默认：全部 Linux 构建
-            '[{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"d812f1254a1157c80fd402f94446310560f54e5f","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux"},{"os":"ubuntu-24.04","docker_img":"rpcs3/rpcs3-ci-jammy:1.14","build_sh":"/rpcs3/.ci/build-linux.sh","compiler":"gcc"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"clang","UPLOAD_COMMIT_HASH":"a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-linux-arm64"},{"os":"ubuntu-24.04-arm","docker_img":"rpcs3/rpcs3-ci-jammy-aarch64:1.14","build_sh":"/rpcs3/.ci/build-linux-aarch64.sh","compiler":"gcc"}]'
-          )
-        }}
-    name: RPCS3 Linux ${{ matrix.os }} ${{ matrix.compiler }}
+        include:
+          - os: ubuntu-24.04
+            docker_img: "rpcs3/rpcs3-ci-jammy:1.14"
+            build_sh: "/rpcs3/.ci/build-linux.sh"
+            compiler: clang
+            UPLOAD_COMMIT_HASH: d812f1254a1157c80fd402f94446310560f54e5f
+            UPLOAD_REPO_FULL_NAME: "rpcs3/rpcs3-binaries-linux"
+            arch: x86_64
+          - os: ubuntu-24.04
+            docker_img: "rpcs3/rpcs3-ci-jammy:1.14"
+            build_sh: "/rpcs3/.ci/build-linux.sh"
+            compiler: gcc
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            docker_img: "rpcs3/rpcs3-ci-jammy-aarch64:1.14"
+            build_sh: "/rpcs3/.ci/build-linux-aarch64.sh"
+            compiler: clang
+            UPLOAD_COMMIT_HASH: a1d35836e8d45bfc6f63c26f0a3e5d46ef622fe1
+            UPLOAD_REPO_FULL_NAME: "rpcs3/rpcs3-binaries-linux-arm64"
+            arch: arm64
+          - os: ubuntu-24.04-arm
+            docker_img: "rpcs3/rpcs3-ci-jammy-aarch64:1.14"
+            build_sh: "/rpcs3/.ci/build-linux-aarch64.sh"
+            compiler: gcc
+            arch: arm64
+    name: RPCS3 Linux ${{ matrix.arch }} ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/ccache
@@ -148,6 +186,33 @@ jobs:
       UPLOAD_REPO_FULL_NAME: ${{ matrix.UPLOAD_REPO_FULL_NAME }}
       RUN_UNIT_TESTS: github.event_name == 'pull_request' && 'ON' || 'OFF'
     steps:
+      - name: Check if should run this matrix entry
+        id: should_run
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "${{ github.event.inputs.build_target }}" == "all" ] || [ "${{ github.event.inputs.build_target }}" == "linux" ]; then
+            LINUX_ARCH="${{ github.event.inputs.linux_arch || 'both' }}"
+            LINUX_COMPILER="${{ github.event.inputs.linux_compiler || 'both' }}"
+            
+            RUN_THIS=false
+            if [ "$LINUX_ARCH" == "both" ] || [ "$LINUX_ARCH" == "${{ matrix.arch }}" ]; then
+              if [ "$LINUX_COMPILER" == "both" ] || [ "$LINUX_COMPILER" == "${{ matrix.compiler }}" ]; then
+                RUN_THIS=true
+              fi
+            fi
+            
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+              RUN_THIS=true
+            fi
+            
+            echo "run_this=$RUN_THIS" >> $GITHUB_OUTPUT
+          else
+            echo "run_this=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip if not selected
+        if: steps.should_run.outputs.run_this == 'false'
+        run: exit 0
+
       - name: Checkout repository
         uses: actions/checkout@main
         with:
@@ -175,7 +240,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@main
         with:
-          name: RPCS3 for Linux (${{ runner.arch }}, ${{ matrix.compiler }})
+          name: RPCS3 for Linux (${{ matrix.arch }}, ${{ matrix.compiler }})
           path: ${{ env.BUILD_ARTIFACTSTAGINGDIRECTORY }}/*.AppImage
           compression-level: 0
 
@@ -203,28 +268,24 @@ jobs:
 
   # ============ Mac Build ============
   Mac_Build:
-    needs: should_build
+    needs: check_build_targets
     if: |
-      (needs.should_build.outputs.build_mac == 'true') &&
+      needs.check_build_targets.outputs.build_mac == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(
-          github.event_name == 'workflow_dispatch' && github.event.inputs.build_target == 'mac' ?
-          (
-            github.event.inputs.mac_arch == 'both' ?
-              '[{"name":"Intel","runs-on":"macos-15-intel","UPLOAD_COMMIT_HASH":"51ae32f468089a8169aaf1567de355ff4a3e0842","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac"},{"name":"Apple Silicon","runs-on":"macos-15","UPLOAD_COMMIT_HASH":"8e21bdbc40711a3fccd18fbf17b742348b0f4281","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac-arm64"}]' :
-            (
-              github.event.inputs.mac_arch == 'intel' ?
-                '[{"name":"Intel","runs-on":"macos-15-intel","UPLOAD_COMMIT_HASH":"51ae32f468089a8169aaf1567de355ff4a3e0842","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac"}]' :
-                '[{"name":"Apple Silicon","runs-on":"macos-15","UPLOAD_COMMIT_HASH":"8e21bdbc40711a3fccd18fbf17b742348b0f4281","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac-arm64"}]'
-            )
-          ) :
-          (
-            '[{"name":"Intel","runs-on":"macos-15-intel","UPLOAD_COMMIT_HASH":"51ae32f468089a8169aaf1567de355ff4a3e0842","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac"},{"name":"Apple Silicon","runs-on":"macos-15","UPLOAD_COMMIT_HASH":"8e21bdbc40711a3fccd18fbf17b742348b0f4281","UPLOAD_REPO_FULL_NAME":"rpcs3/rpcs3-binaries-mac-arm64"}]'
-          )
-        }}
+        include:
+          - name: Intel
+            runs-on: macos-15-intel
+            UPLOAD_COMMIT_HASH: 51ae32f468089a8169aaf1567de355ff4a3e0842
+            UPLOAD_REPO_FULL_NAME: rpcs3/rpcs3-binaries-mac
+            arch: intel
+          - name: Apple Silicon
+            runs-on: macos-15
+            UPLOAD_COMMIT_HASH: 8e21bdbc40711a3fccd18fbf17b742348b0f4281
+            UPLOAD_REPO_FULL_NAME: rpcs3/rpcs3-binaries-mac-arm64
+            arch: arm64
     name: RPCS3 Mac ${{ matrix.name }} 
     runs-on: ${{ matrix.runs-on }} 
     env:
@@ -237,6 +298,31 @@ jobs:
       UPLOAD_REPO_FULL_NAME: ${{ matrix.UPLOAD_REPO_FULL_NAME }}
       RUN_UNIT_TESTS: ${{ matrix.name == 'Apple Silicon' && (github.event_name == 'pull_request' && 'ON') || 'OFF' }}
     steps:
+      - name: Check if should run this matrix entry
+        id: should_run
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "${{ github.event.inputs.build_target }}" == "all" ] || [ "${{ github.event.inputs.build_target }}" == "mac" ]; then
+            MAC_ARCH="${{ github.event.inputs.mac_arch || 'both' }}"
+            
+            RUN_THIS=false
+            ARCH_NAME="${{ matrix.arch }}"
+            if [ "$MAC_ARCH" == "both" ] || [ "$MAC_ARCH" == "$ARCH_NAME" ]; then
+              RUN_THIS=true
+            fi
+            
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+              RUN_THIS=true
+            fi
+            
+            echo "run_this=$RUN_THIS" >> $GITHUB_OUTPUT
+          else
+            echo "run_this=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip if not selected
+        if: steps.should_run.outputs.run_this == 'false'
+        run: exit 0
+
       - name: Checkout repository
         uses: actions/checkout@main
         with:
@@ -300,9 +386,9 @@ jobs:
 
   # ============ Windows Build (MSVC) ============
   Windows_Build:
-    needs: should_build
+    needs: check_build_targets
     if: |
-      (needs.should_build.outputs.build_windows == 'true') &&
+      needs.check_build_targets.outputs.build_windows == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
     name: RPCS3 Windows
     runs-on: windows-2025-vs2026
@@ -423,34 +509,55 @@ jobs:
 
   # ============ Windows Build (Clang) ============
   Windows_Build_Clang:
-    needs: should_build
+    needs: check_build_targets
     if: |
-      (needs.should_build.outputs.build_windows_clang == 'true') &&
+      needs.check_build_targets.outputs.build_windows_clang == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(
-          github.event_name == 'workflow_dispatch' && github.event.inputs.build_target == 'windows-clang' ?
-          (
-            github.event.inputs.windows_arch == 'both' ?
-              '[{"msys2":"clang64","compiler":"clang","arch":"x86_64","os":"windows-2025","name":"X64"},{"msys2":"clangarm64","compiler":"clang","arch":"aarch64","os":"windows-11-arm","name":"ARM64"}]' :
-            (
-              github.event.inputs.windows_arch == 'x64' ?
-                '[{"msys2":"clang64","compiler":"clang","arch":"x86_64","os":"windows-2025","name":"X64"}]' :
-                '[{"msys2":"clangarm64","compiler":"clang","arch":"aarch64","os":"windows-11-arm","name":"ARM64"}]'
-            )
-          ) :
-          (
-            '[{"msys2":"clang64","compiler":"clang","arch":"x86_64","os":"windows-2025","name":"X64"},{"msys2":"clangarm64","compiler":"clang","arch":"aarch64","os":"windows-11-arm","name":"ARM64"}]'
-          )
-        }}
+        include:
+          - msys2: clang64
+            compiler: clang
+            arch: x86_64
+            os: windows-2025
+            name: X64
+          - msys2: clangarm64
+            compiler: clang
+            arch: aarch64
+            os: windows-11-arm
+            name: ARM64
     env:
       CCACHE_DIR: 'C:\ccache'
       RELEASE_MESSAGE: ../GitHubReleaseMessage.txt
     name: RPCS3 Windows Clang ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Check if should run this matrix entry
+        id: should_run
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "${{ github.event.inputs.build_target }}" == "all" ] || [ "${{ github.event.inputs.build_target }}" == "windows-clang" ]; then
+            WIN_ARCH="${{ github.event.inputs.windows_arch || 'both' }}"
+            
+            RUN_THIS=false
+            if [ "$WIN_ARCH" == "both" ] || [ "$WIN_ARCH" == "${{ matrix.arch }}" ]; then
+              RUN_THIS=true
+            fi
+            
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+              RUN_THIS=true
+            fi
+            
+            echo "run_this=$RUN_THIS" >> $GITHUB_OUTPUT
+          else
+            echo "run_this=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip if not selected
+        if: steps.should_run.outputs.run_this == 'false'
+        run: exit 0
+
       - name: Checkout repository
         uses: actions/checkout@main
         with:
@@ -538,9 +645,9 @@ jobs:
 
   # ============ FreeBSD Build ============
   FreeBSD_Build:
-    needs: should_build
+    needs: check_build_targets
     if: |
-      (needs.should_build.outputs.build_freebsd == 'true') &&
+      needs.check_build_targets.outputs.build_freebsd == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
     name: RPCS3 FreeBSD 
     runs-on: ubuntu-latest
