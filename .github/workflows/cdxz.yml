@@ -19,7 +19,7 @@ on:
           - all
           - linux
           - mac
-          - windows
+          - windows-msvc
           - windows-clang
           - freebsd
       linux_arch:
@@ -49,7 +49,7 @@ on:
           - intel
           - arm64
           - both
-      windows_arch:
+      windows_clang_arch:
         description: 'Windows Clang 架构 (仅当 build_target=windows-clang 时生效)'
         required: false
         default: 'both'
@@ -77,7 +77,7 @@ jobs:
     outputs:
       build_linux: ${{ steps.check.outputs.build_linux }}
       build_mac: ${{ steps.check.outputs.build_mac }}
-      build_windows: ${{ steps.check.outputs.build_windows }}
+      build_windows_msvc: ${{ steps.check.outputs.build_windows_msvc }}
       build_windows_clang: ${{ steps.check.outputs.build_windows_clang }}
       build_freebsd: ${{ steps.check.outputs.build_freebsd }}
     steps:
@@ -91,49 +91,49 @@ jobs:
             all)
               echo "build_linux=true" >> $GITHUB_OUTPUT
               echo "build_mac=true" >> $GITHUB_OUTPUT
-              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=true" >> $GITHUB_OUTPUT
               echo "build_windows_clang=true" >> $GITHUB_OUTPUT
               echo "build_freebsd=true" >> $GITHUB_OUTPUT
               ;;
             linux)
               echo "build_linux=true" >> $GITHUB_OUTPUT
               echo "build_mac=false" >> $GITHUB_OUTPUT
-              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=false" >> $GITHUB_OUTPUT
               echo "build_windows_clang=false" >> $GITHUB_OUTPUT
               echo "build_freebsd=false" >> $GITHUB_OUTPUT
               ;;
             mac)
               echo "build_linux=false" >> $GITHUB_OUTPUT
               echo "build_mac=true" >> $GITHUB_OUTPUT
-              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=false" >> $GITHUB_OUTPUT
               echo "build_windows_clang=false" >> $GITHUB_OUTPUT
               echo "build_freebsd=false" >> $GITHUB_OUTPUT
               ;;
-            windows)
+            windows-msvc)
               echo "build_linux=false" >> $GITHUB_OUTPUT
               echo "build_mac=false" >> $GITHUB_OUTPUT
-              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=true" >> $GITHUB_OUTPUT
               echo "build_windows_clang=false" >> $GITHUB_OUTPUT
               echo "build_freebsd=false" >> $GITHUB_OUTPUT
               ;;
             windows-clang)
               echo "build_linux=false" >> $GITHUB_OUTPUT
               echo "build_mac=false" >> $GITHUB_OUTPUT
-              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=false" >> $GITHUB_OUTPUT
               echo "build_windows_clang=true" >> $GITHUB_OUTPUT
               echo "build_freebsd=false" >> $GITHUB_OUTPUT
               ;;
             freebsd)
               echo "build_linux=false" >> $GITHUB_OUTPUT
               echo "build_mac=false" >> $GITHUB_OUTPUT
-              echo "build_windows=false" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=false" >> $GITHUB_OUTPUT
               echo "build_windows_clang=false" >> $GITHUB_OUTPUT
               echo "build_freebsd=true" >> $GITHUB_OUTPUT
               ;;
             *)
               echo "build_linux=true" >> $GITHUB_OUTPUT
               echo "build_mac=true" >> $GITHUB_OUTPUT
-              echo "build_windows=true" >> $GITHUB_OUTPUT
+              echo "build_windows_msvc=true" >> $GITHUB_OUTPUT
               echo "build_windows_clang=true" >> $GITHUB_OUTPUT
               echo "build_freebsd=true" >> $GITHUB_OUTPUT
               ;;
@@ -388,9 +388,9 @@ jobs:
   Windows_Build:
     needs: check_build_targets
     if: |
-      needs.check_build_targets.outputs.build_windows == 'true' &&
+      needs.check_build_targets.outputs.build_windows_msvc == 'true' &&
       (github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master'))
-    name: RPCS3 Windows
+    name: RPCS3 Windows MSVC
     runs-on: windows-2025-vs2026
     env:
       COMPILER: msvc
@@ -522,11 +522,15 @@ jobs:
             arch: x86_64
             os: windows-2025
             name: X64
+            upload_commit_hash: 7d09e3be30805911226241afbb14f8cdc2eb054e
+            upload_repo: "RPCS3/rpcs3-binaries-win"
           - msys2: clangarm64
             compiler: clang
             arch: aarch64
             os: windows-11-arm
             name: ARM64
+            upload_commit_hash: ee05050fd1d8488148a771b526702656a10dacf0
+            upload_repo: "RPCS3/rpcs3-binaries-win-arm64"
     env:
       CCACHE_DIR: 'C:\ccache'
       RELEASE_MESSAGE: ../GitHubReleaseMessage.txt
@@ -538,7 +542,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "${{ github.event.inputs.build_target }}" == "all" ] || [ "${{ github.event.inputs.build_target }}" == "windows-clang" ]; then
-            WIN_ARCH="${{ github.event.inputs.windows_arch || 'both' }}"
+            WIN_ARCH="${{ github.event.inputs.windows_clang_arch || 'both' }}"
             
             RUN_THIS=false
             if [ "$WIN_ARCH" == "both" ] || [ "$WIN_ARCH" == "${{ matrix.arch }}" ]; then
@@ -611,16 +615,15 @@ jobs:
           .ci/setup-windows-ci-vars.sh ${{ matrix.arch }} ${{ matrix.compiler }}
           .ci/build-windows-clang.sh ${{ matrix.arch }} ${{ matrix.msys2 }}
 
-      - name: Deploy master build to GitHub Releases (only aarch64)
+      - name: Deploy master build to GitHub Releases
         if: |
-          matrix.arch == 'aarch64' &&
           github.event_name != 'pull_request' &&
           github.repository == 'RPCS3/rpcs3' &&
           github.ref == 'refs/heads/master'
         env:
           RPCS3_TOKEN: ${{ secrets.RPCS3_TOKEN }}
-          UPLOAD_COMMIT_HASH: ee05050fd1d8488148a771b526702656a10dacf0
-          UPLOAD_REPO_FULL_NAME: "RPCS3/rpcs3-binaries-win-arm64"
+          UPLOAD_COMMIT_HASH: ${{ matrix.upload_commit_hash }}
+          UPLOAD_REPO_FULL_NAME: ${{ matrix.upload_repo }}
         run: |
           COMM_TAG=$(awk '/version{.*}/ { printf("%d.%d.%d", $5, $6, $7) }' ./rpcs3/rpcs3_version.cpp)
           COMM_COUNT=$(git rev-list --count HEAD)
