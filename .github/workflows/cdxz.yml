@@ -1,4 +1,4 @@
-name: Build RPCS3
+name: sdBuild RPCS3
 
 defaults:
   run:
