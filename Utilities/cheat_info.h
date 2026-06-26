@@ -20,6 +20,24 @@ enum class cheat_type : u8
 
 constexpr u8 cheat_type_max = static_cast<u8>(cheat_type::max);
 
+enum class search_compare_mode : u8
+{
+	equal,
+	not_equal,
+	greater_than,
+	less_than,
+	between,
+	changed,
+	unchanged,
+	increased,
+	decreased,
+	increased_by,
+	decreased_by,
+	max
+};
+
+constexpr u8 search_compare_mode_max = static_cast<u8>(search_compare_mode::max);
+
 struct cheat_info
 {
 	std::string game{};
