@@ -367,6 +367,7 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 
 		if (!to_filter.empty())
 		{
+			u32 debug_logged = 0;
 			for (const auto& off : to_filter)
 			{
 				if (vm::check_addr<sizeof(T)>(off))
@@ -374,12 +375,46 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 					const to_be_t<T> be_value = *vm::get_super_ptr<T>(off);
 					const T mem_value = static_cast<T>(be_value);
 
-					if (mode == search_compare_mode::changed ||
+					const bool is_prev_mode = (mode == search_compare_mode::changed ||
 						mode == search_compare_mode::unchanged ||
 						mode == search_compare_mode::increased ||
 						mode == search_compare_mode::decreased ||
 						mode == search_compare_mode::increased_by ||
-						mode == search_compare_mode::decreased_by)
+						mode == search_compare_mode::decreased_by);
+
+					if (is_prev_mode && debug_logged < 10)
+					{
+						T prev_val{};
+						bool found_prev = false;
+						if (prev_values)
+						{
+							const auto it = prev_values->find(off);
+							if (it != prev_values->end())
+							{
+								prev_val = it->second;
+								found_prev = true;
+							}
+						}
+
+						if (found_prev)
+						{
+							const bool match = compare_with_prev(mem_value, off);
+							log_cheat.notice("search filter sample [%u]: addr=0x%08X, prev=%s, curr=%s, match=%d",
+								debug_logged, off,
+								fmt::format("{}", prev_val).c_str(),
+								fmt::format("{}", mem_value).c_str(),
+								match ? 1 : 0);
+						}
+						else
+						{
+							log_cheat.notice("search filter sample [%u]: addr=0x%08X, prev=NOT_FOUND, curr=%s",
+								debug_logged, off,
+								fmt::format("{}", mem_value).c_str());
+						}
+						debug_logged++;
+					}
+
+					if (is_prev_mode)
 					{
 						if (compare_with_prev(mem_value, off))
 							results.push_back(off);
@@ -427,9 +462,13 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 		mode == search_compare_mode::increased_by ||
 		mode == search_compare_mode::decreased_by)
 	{
-		return {};
+		log_cheat.notice("search<T>: filter mode=%s, input=%zu, results=%zu",
+			fmt::format("{}", mode).c_str(), to_filter.size(), results.size());
+		return results;
 	}
 
+	log_cheat.notice("search<T>: mode=%s, results=%zu",
+		fmt::format("{}", mode).c_str(), results.size());
 	return results;
 }
 
@@ -457,6 +496,22 @@ std::vector<std::pair<u32, T>> cheat_engine::scan_all_memory(u32 max_entries)
 			}
 		}
 	});
+
+	log_cheat.notice("scan_all_memory: scanned %zu entries (max %u), sizeof(T)=%u", results.size(), max_entries, static_cast<u32>(sizeof(T)));
+
+	if (!results.empty())
+	{
+		const u32 sample_count = std::min<u32>(5, static_cast<u32>(results.size()));
+		for (u32 i = 0; i < sample_count; i++)
+		{
+			const u32 idx = results.size() / sample_count * i;
+			const auto& [addr, val] = results[idx];
+			if constexpr (std::is_same_v<T, f32>)
+				log_cheat.notice("scan_all_memory sample [%u]: addr=0x%08X, value=%f", i, addr, val);
+			else
+				log_cheat.notice("scan_all_memory sample [%u]: addr=0x%08X, value=%llu", i, addr, static_cast<u64>(val));
+		}
+	}
 
 	return results;
 }
@@ -525,6 +580,7 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 
 		if (!to_filter.empty())
 		{
+			u32 debug_logged = 0;
 			for (const auto& off : to_filter)
 			{
 				if (vm::check_addr<sizeof(f32)>(off))
@@ -532,12 +588,42 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 					const to_be_t<f32> be_value = *vm::get_super_ptr<f32>(off);
 					const f32 mem_value = static_cast<f32>(be_value);
 
-					if (mode == search_compare_mode::changed ||
+					const bool is_prev_mode = (mode == search_compare_mode::changed ||
 						mode == search_compare_mode::unchanged ||
 						mode == search_compare_mode::increased ||
 						mode == search_compare_mode::decreased ||
 						mode == search_compare_mode::increased_by ||
-						mode == search_compare_mode::decreased_by)
+						mode == search_compare_mode::decreased_by);
+
+					if (is_prev_mode && debug_logged < 10)
+					{
+						f32 prev_val = 0.f;
+						bool found_prev = false;
+						if (prev_values)
+						{
+							const auto it = prev_values->find(off);
+							if (it != prev_values->end())
+							{
+								prev_val = it->second;
+								found_prev = true;
+							}
+						}
+
+						if (found_prev)
+						{
+							const bool match = compare_with_prev(mem_value, off);
+							log_cheat.notice("search<f32> filter sample [%u]: addr=0x%08X, prev=%f, curr=%f, match=%d",
+								debug_logged, off, prev_val, mem_value, match ? 1 : 0);
+						}
+						else
+						{
+							log_cheat.notice("search<f32> filter sample [%u]: addr=0x%08X, prev=NOT_FOUND, curr=%f",
+								debug_logged, off, mem_value);
+						}
+						debug_logged++;
+					}
+
+					if (is_prev_mode)
 					{
 						if (compare_with_prev(mem_value, off))
 							results.push_back(off);
@@ -585,9 +671,13 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 		mode == search_compare_mode::increased_by ||
 		mode == search_compare_mode::decreased_by)
 	{
-		return {};
+		log_cheat.notice("search<f32>: filter mode=%s, input=%zu, results=%zu",
+			fmt::format("{}", mode).c_str(), to_filter.size(), results.size());
+		return results;
 	}
 
+	log_cheat.notice("search<f32>: mode=%s, results=%zu",
+		fmt::format("{}", mode).c_str(), results.size());
 	return results;
 }
 
@@ -1247,7 +1337,11 @@ bool cheat_manager_dialog::convert_and_search()
 
 	if (mode == search_compare_mode::unknown_initial)
 	{
+		log_cheat.notice("convert_and_search: starting unknown_initial scan for type size=%u", static_cast<u32>(sizeof(T)));
+
 		const auto all_values = cheat_engine::scan_all_memory<T>();
+
+		log_cheat.notice("convert_and_search: unknown_initial got %zu entries from scan", all_values.size());
 
 		offsets_found.clear();
 		last_search_values.clear();
@@ -1265,17 +1359,42 @@ bool cheat_manager_dialog::convert_and_search()
 
 		std::sort(last_search_values.begin(), last_search_values.end());
 
+		log_cheat.notice("convert_and_search: unknown_initial done, offsets_found=%zu, last_search_values=%zu, is_sorted=%s",
+			offsets_found.size(), last_search_values.size(),
+			std::is_sorted(last_search_values.begin(), last_search_values.end()) ? "yes" : "no");
+
+		if (!last_search_values.empty())
+		{
+			const u32 sample_count = std::min<u32>(3, static_cast<u32>(last_search_values.size()));
+			for (u32 i = 0; i < sample_count; i++)
+			{
+				const u32 idx = last_search_values.size() / sample_count * i;
+				const auto& [off, stored] = last_search_values[idx];
+				T val{};
+				std::memcpy(&val, &stored, sizeof(T));
+				if constexpr (std::is_same_v<T, f32>)
+					log_cheat.notice("convert_and_search stored sample [%u]: addr=0x%08X, value=%f", i, off, val);
+				else
+					log_cheat.notice("convert_and_search stored sample [%u]: addr=0x%08X, value=%llu", i, off, static_cast<u64>(val));
+			}
+		}
+
 		return true;
 	}
 
 	std::map<u32, T> prev_values;
-	if (mode == search_compare_mode::changed ||
+	const bool is_compare_mode = (mode == search_compare_mode::changed ||
 		mode == search_compare_mode::unchanged ||
 		mode == search_compare_mode::increased ||
 		mode == search_compare_mode::decreased ||
 		mode == search_compare_mode::increased_by ||
-		mode == search_compare_mode::decreased_by)
+		mode == search_compare_mode::decreased_by);
+
+	if (is_compare_mode)
 	{
+		log_cheat.notice("convert_and_search: building prev_values, offsets_found=%zu, last_search_values=%zu",
+			offsets_found.size(), last_search_values.size());
+
 		for (const auto& off : offsets_found)
 		{
 			const auto it = std::lower_bound(last_search_values.begin(), last_search_values.end(), std::make_pair(off, u64{}));
@@ -1284,6 +1403,21 @@ bool cheat_manager_dialog::convert_and_search()
 				T val{};
 				std::memcpy(&val, &it->second, sizeof(T));
 				prev_values[off] = val;
+			}
+		}
+
+		log_cheat.notice("convert_and_search: built prev_values with %zu entries", prev_values.size());
+
+		if (!prev_values.empty())
+		{
+			auto it = prev_values.begin();
+			for (u32 i = 0; i < 3 && it != prev_values.end(); i++, ++it)
+			{
+				const auto& [off, val] = *it;
+				if constexpr (std::is_same_v<T, f32>)
+					log_cheat.notice("convert_and_search prev sample [%u]: addr=0x%08X, value=%f", i, off, val);
+				else
+					log_cheat.notice("convert_and_search prev sample [%u]: addr=0x%08X, value=%llu", i, off, static_cast<u64>(val));
 			}
 		}
 	}
