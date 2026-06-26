@@ -38,6 +38,9 @@ public:
 		const std::map<u32, T>* prev_values = nullptr);
 
 	template <typename T>
+	static std::map<u32, T> scan_all_memory();
+
+	template <typename T>
 	static T get_value(const u32 offset, bool& success);
 	template <typename T>
 	static bool set_value(const u32 offset, const T value);

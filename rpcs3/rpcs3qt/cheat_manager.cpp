@@ -430,6 +430,32 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 	return results;
 }
 
+template <typename T>
+std::map<u32, T> cheat_engine::scan_all_memory()
+{
+	std::map<u32, T> results;
+
+	if (Emu.IsStopped())
+		return results;
+
+	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
+	{
+		for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
+		{
+			if (vm::check_addr(page_start))
+			{
+				for (u32 index = 0; index < 4096; index += sizeof(T))
+				{
+					const u32 addr = page_start + index;
+					results[addr] = *vm::get_super_ptr<T>(addr);
+				}
+			}
+		}
+	});
+
+	return results;
+}
+
 template <>
 std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u32>& to_filter,
 	search_compare_mode mode, const f32 value2, const std::map<u32, f32>* prev_values)
@@ -1179,6 +1205,7 @@ bool cheat_manager_dialog::convert_and_search()
 	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 
 	const search_compare_mode no_value_modes[] = {
+		search_compare_mode::unknown_initial,
 		search_compare_mode::changed,
 		search_compare_mode::unchanged,
 		search_compare_mode::increased,
@@ -1209,6 +1236,24 @@ bool cheat_manager_dialog::convert_and_search()
 		value2 = convert_from_QString<T>(to_search2, res_conv2);
 		if (!res_conv2)
 			return false;
+	}
+
+	if (mode == search_compare_mode::unknown_initial)
+	{
+		const std::map<u32, T> all_values = cheat_engine::scan_all_memory<T>();
+
+		offsets_found.clear();
+		last_search_values.clear();
+
+		for (const auto& [off, val] : all_values)
+		{
+			offsets_found.push_back(off);
+			u64 storage = 0;
+			std::memcpy(&storage, &val, sizeof(T));
+			last_search_values[off] = storage;
+		}
+
+		return true;
 	}
 
 	std::map<u32, T> prev_values;
@@ -1417,6 +1462,7 @@ QString cheat_manager_dialog::get_localized_compare_mode(search_compare_mode mod
 {
 	switch (mode)
 	{
+	case search_compare_mode::unknown_initial: return tr("Unknown Initial Value");
 	case search_compare_mode::equal: return tr("Equals");
 	case search_compare_mode::not_equal: return tr("Not Equals");
 	case search_compare_mode::greater_than: return tr("Greater Than");
@@ -1437,12 +1483,32 @@ void cheat_manager_dialog::update_search_button_states()
 {
 	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 
+	const search_compare_mode filter_only_modes[] = {
+		search_compare_mode::changed,
+		search_compare_mode::unchanged,
+		search_compare_mode::increased,
+		search_compare_mode::decreased,
+		search_compare_mode::increased_by,
+		search_compare_mode::decreased_by
+	};
+
 	const search_compare_mode no_value_modes[] = {
+		search_compare_mode::unknown_initial,
 		search_compare_mode::changed,
 		search_compare_mode::unchanged,
 		search_compare_mode::increased,
 		search_compare_mode::decreased
 	};
+
+	bool is_filter_only = false;
+	for (const auto& m : filter_only_modes)
+	{
+		if (mode == m)
+		{
+			is_filter_only = true;
+			break;
+		}
+	}
 
 	bool needs_value = true;
 	for (const auto& m : no_value_modes)
@@ -1459,13 +1525,17 @@ void cheat_manager_dialog::update_search_button_states()
 
 	if (btn_new_search)
 	{
-		if (needs_value)
+		if (is_filter_only)
+		{
+			btn_new_search->setEnabled(false);
+		}
+		else if (needs_value)
 		{
 			btn_new_search->setEnabled(has_value);
 		}
 		else
 		{
-			btn_new_search->setEnabled(false);
+			btn_new_search->setEnabled(true);
 		}
 	}
 
