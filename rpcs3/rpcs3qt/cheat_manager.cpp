@@ -1017,6 +1017,8 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		case cheat_table_columns::script: cheat->red_script = item->text().toStdString(); break;
 		case cheat_table_columns::locked:
 			cheat->locked = (item->checkState() == Qt::Checked);
+			log_cheat.notice("Lock toggled: game=%s, offset=0x%08X, locked=%d", cheat->game.c_str(), cheat->offset, cheat->locked ? 1 : 0);
+
 			if (cheat->locked)
 			{
 				u32 final_offset = 0;
@@ -1041,6 +1043,12 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 					}
 					case cheat_type::max: break;
 					}
+
+					log_cheat.notice("Lock value stored: final_offset=0x%08X, success=%d, locked_value=0x%016llX", final_offset, success ? 1 : 0, cheat->locked_value);
+				}
+				else
+				{
+					log_cheat.error("Lock: failed to resolve script for offset=0x%08X", cheat->offset);
 				}
 			}
 			break;
@@ -1643,6 +1651,8 @@ void cheat_manager_dialog::update_locked_values()
 	if (Emu.IsStopped())
 		return;
 
+	u32 locked_count = 0;
+
 	for (auto& game : g_cheat.cheats)
 	{
 		for (auto& [offset, cheat] : game.second)
@@ -1650,44 +1660,54 @@ void cheat_manager_dialog::update_locked_values()
 			if (!cheat.locked)
 				continue;
 
+			locked_count++;
+
 			u32 final_offset = 0;
 			if (!cheat_engine::resolve_script(final_offset, cheat.offset, cheat.red_script))
 				continue;
 
+			bool result = false;
+
 			switch (cheat.type)
 			{
 			case cheat_type::unsigned_8_cheat:
-				cheat_engine::set_value<u8>(final_offset, static_cast<u8>(cheat.locked_value));
+				result = cheat_engine::set_value<u8>(final_offset, static_cast<u8>(cheat.locked_value));
 				break;
 			case cheat_type::unsigned_16_cheat:
-				cheat_engine::set_value<u16>(final_offset, static_cast<u16>(cheat.locked_value));
+				result = cheat_engine::set_value<u16>(final_offset, static_cast<u16>(cheat.locked_value));
 				break;
 			case cheat_type::unsigned_32_cheat:
-				cheat_engine::set_value<u32>(final_offset, static_cast<u32>(cheat.locked_value));
+				result = cheat_engine::set_value<u32>(final_offset, static_cast<u32>(cheat.locked_value));
 				break;
 			case cheat_type::unsigned_64_cheat:
-				cheat_engine::set_value<u64>(final_offset, cheat.locked_value);
+				result = cheat_engine::set_value<u64>(final_offset, cheat.locked_value);
 				break;
 			case cheat_type::signed_8_cheat:
-				cheat_engine::set_value<s8>(final_offset, static_cast<s8>(cheat.locked_value));
+				result = cheat_engine::set_value<s8>(final_offset, static_cast<s8>(cheat.locked_value));
 				break;
 			case cheat_type::signed_16_cheat:
-				cheat_engine::set_value<s16>(final_offset, static_cast<s16>(cheat.locked_value));
+				result = cheat_engine::set_value<s16>(final_offset, static_cast<s16>(cheat.locked_value));
 				break;
 			case cheat_type::signed_32_cheat:
-				cheat_engine::set_value<s32>(final_offset, static_cast<s32>(cheat.locked_value));
+				result = cheat_engine::set_value<s32>(final_offset, static_cast<s32>(cheat.locked_value));
 				break;
 			case cheat_type::signed_64_cheat:
-				cheat_engine::set_value<s64>(final_offset, static_cast<s64>(cheat.locked_value));
+				result = cheat_engine::set_value<s64>(final_offset, static_cast<s64>(cheat.locked_value));
 				break;
 			case cheat_type::float_32_cheat:
 			{
 				f32 fval = 0.f;
 				std::memcpy(&fval, &cheat.locked_value, sizeof(f32));
-				cheat_engine::set_value<f32>(final_offset, fval);
+				result = cheat_engine::set_value<f32>(final_offset, fval);
 				break;
 			}
 			case cheat_type::max: break;
+			}
+
+			if (locked_count <= 1)
+			{
+				log_cheat.notice("Lock update: game=%s, offset=0x%08X, final=0x%08X, locked_val=0x%016llX, result=%d",
+					cheat.game.c_str(), cheat.offset, final_offset, cheat.locked_value, result ? 1 : 0);
 			}
 		}
 	}
