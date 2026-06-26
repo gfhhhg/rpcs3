@@ -34,6 +34,7 @@ void fmt_class_string<search_compare_mode>::format(std::string& out, u64 arg)
 	{
 		switch (value)
 		{
+		case search_compare_mode::unknown_initial: return "Unknown Initial Value";
 		case search_compare_mode::equal: return "Equals";
 		case search_compare_mode::not_equal: return "Not Equals";
 		case search_compare_mode::greater_than: return "Greater Than";

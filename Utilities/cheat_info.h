@@ -22,6 +22,7 @@ constexpr u8 cheat_type_max = static_cast<u8>(cheat_type::max);
 
 enum class search_compare_mode : u8
 {
+	unknown_initial,
 	equal,
 	not_equal,
 	greater_than,
