@@ -399,7 +399,7 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 				mode == search_compare_mode::increased_by ||
 				mode == search_compare_mode::decreased_by)
 			{
-				return results;
+				return;
 			}
 
 			for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
@@ -416,6 +416,16 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 			}
 		}
 	});
+
+	if (mode == search_compare_mode::changed ||
+		mode == search_compare_mode::unchanged ||
+		mode == search_compare_mode::increased ||
+		mode == search_compare_mode::decreased ||
+		mode == search_compare_mode::increased_by ||
+		mode == search_compare_mode::decreased_by)
+	{
+		return {};
+	}
 
 	return results;
 }
@@ -517,7 +527,7 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 				mode == search_compare_mode::increased_by ||
 				mode == search_compare_mode::decreased_by)
 			{
-				return results;
+				return;
 			}
 
 			for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
@@ -534,6 +544,16 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 			}
 		}
 	});
+
+	if (mode == search_compare_mode::changed ||
+		mode == search_compare_mode::unchanged ||
+		mode == search_compare_mode::increased ||
+		mode == search_compare_mode::decreased ||
+		mode == search_compare_mode::increased_by ||
+		mode == search_compare_mode::decreased_by)
+	{
+		return {};
+	}
 
 	return results;
 }
