@@ -313,7 +313,7 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 	if (Emu.IsStopped())
 		return {};
 
-	cpu_thread::suspend_all(nullptr, {}, [&]
+	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
 	{
 		auto compare_value = [&](const T& mem_value) -> bool
 		{
@@ -431,7 +431,7 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 	if (Emu.IsStopped())
 		return {};
 
-	cpu_thread::suspend_all(nullptr, {}, [&]
+	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
 	{
 		auto compare_value = [&](const f32& mem_value) -> bool
 		{
@@ -1027,9 +1027,9 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		do_the_search();
 	});
 
-	connect(cbx_compare_mode, qOverload<int>(&QComboBox::currentIndexChanged), [this](int index)
+	connect(cbx_compare_mode, qOverload<int>(&QComboBox::currentIndexChanged), [this](int /*index*/)
 	{
-		const search_compare_mode mode = static_cast<search_compare_mode>(index);
+		const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 		edt_cheat_search_value2->setEnabled(mode == search_compare_mode::between);
 
 		const search_compare_mode changed_modes[] = {
@@ -1048,18 +1048,6 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 			{
 				requires_filter = true;
 				break;
-			}
-		}
-
-		if (btn_new_search)
-		{
-			if (requires_filter)
-			{
-				btn_new_search->setEnabled(false);
-			}
-			else
-			{
-				btn_new_search->setEnabled(!edt_cheat_search_value->text().isEmpty());
 			}
 		}
 
