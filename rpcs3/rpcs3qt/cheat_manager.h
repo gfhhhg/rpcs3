@@ -38,7 +38,7 @@ public:
 		const std::map<u32, T>* prev_values = nullptr);
 
 	template <typename T>
-	static std::map<u32, T> scan_all_memory();
+	static std::vector<std::pair<u32, T>> scan_all_memory(u32 max_entries = 5000000);
 
 	template <typename T>
 	static T get_value(const u32 offset, bool& success);
@@ -94,7 +94,7 @@ protected:
 
 	u32 current_offset{};
 	std::vector<u32> offsets_found;
-	std::map<u32, u64> last_search_values;
+	std::vector<std::pair<u32, u64>> last_search_values;
 
 	cheat_engine g_cheat;
 

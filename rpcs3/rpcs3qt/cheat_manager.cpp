@@ -1,4 +1,5 @@
 #include <cmath>
+#include <algorithm>
 
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -370,7 +371,8 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 			{
 				if (vm::check_addr<sizeof(T)>(off))
 				{
-					const T mem_value = *vm::get_super_ptr<T>(off);
+					const to_be_t<T> be_value = *vm::get_super_ptr<T>(off);
+					const T mem_value = static_cast<T>(be_value);
 
 					if (mode == search_compare_mode::changed ||
 						mode == search_compare_mode::unchanged ||
@@ -408,7 +410,8 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 				{
 					for (u32 index = 0; index < 4096; index += sizeof(T))
 					{
-						const T mem_value = *vm::get_super_ptr<T>(page_start + index);
+						const to_be_t<T> be_value = *vm::get_super_ptr<T>(page_start + index);
+						const T mem_value = static_cast<T>(be_value);
 						if (compare_value(mem_value))
 							results.push_back(page_start + index);
 					}
@@ -431,23 +434,25 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 }
 
 template <typename T>
-std::map<u32, T> cheat_engine::scan_all_memory()
+std::vector<std::pair<u32, T>> cheat_engine::scan_all_memory(u32 max_entries)
 {
-	std::map<u32, T> results;
+	std::vector<std::pair<u32, T>> results;
+	results.reserve(max_entries);
 
 	if (Emu.IsStopped())
 		return results;
 
 	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
 	{
-		for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
+		for (u32 page_start = 0x10000; page_start < 0xF0000000 && results.size() < max_entries; page_start += 4096)
 		{
 			if (vm::check_addr(page_start))
 			{
-				for (u32 index = 0; index < 4096; index += sizeof(T))
+				for (u32 index = 0; index < 4096 && results.size() < max_entries; index += sizeof(T))
 				{
 					const u32 addr = page_start + index;
-					results[addr] = *vm::get_super_ptr<T>(addr);
+					const to_be_t<T> be_value = *vm::get_super_ptr<T>(addr);
+					results.emplace_back(addr, static_cast<T>(be_value));
 				}
 			}
 		}
@@ -524,7 +529,8 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 			{
 				if (vm::check_addr<sizeof(f32)>(off))
 				{
-					const f32 mem_value = *vm::get_super_ptr<f32>(off);
+					const to_be_t<f32> be_value = *vm::get_super_ptr<f32>(off);
+					const f32 mem_value = static_cast<f32>(be_value);
 
 					if (mode == search_compare_mode::changed ||
 						mode == search_compare_mode::unchanged ||
@@ -562,7 +568,8 @@ std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u3
 				{
 					for (u32 index = 0; index < 4096; index += sizeof(f32))
 					{
-						const f32 mem_value = *vm::get_super_ptr<f32>(page_start + index);
+						const to_be_t<f32> be_value = *vm::get_super_ptr<f32>(page_start + index);
+						const f32 mem_value = static_cast<f32>(be_value);
 						if (compare_value(mem_value))
 							results.push_back(page_start + index);
 					}
@@ -1240,18 +1247,23 @@ bool cheat_manager_dialog::convert_and_search()
 
 	if (mode == search_compare_mode::unknown_initial)
 	{
-		const std::map<u32, T> all_values = cheat_engine::scan_all_memory<T>();
+		const auto all_values = cheat_engine::scan_all_memory<T>();
 
 		offsets_found.clear();
 		last_search_values.clear();
+
+		offsets_found.reserve(all_values.size());
+		last_search_values.reserve(all_values.size());
 
 		for (const auto& [off, val] : all_values)
 		{
 			offsets_found.push_back(off);
 			u64 storage = 0;
 			std::memcpy(&storage, &val, sizeof(T));
-			last_search_values[off] = storage;
+			last_search_values.emplace_back(off, storage);
 		}
+
+		std::sort(last_search_values.begin(), last_search_values.end());
 
 		return true;
 	}
@@ -1266,8 +1278,8 @@ bool cheat_manager_dialog::convert_and_search()
 	{
 		for (const auto& off : offsets_found)
 		{
-			const auto it = last_search_values.find(off);
-			if (it != last_search_values.end())
+			const auto it = std::lower_bound(last_search_values.begin(), last_search_values.end(), std::make_pair(off, u64{}));
+			if (it != last_search_values.end() && it->first == off)
 			{
 				T val{};
 				std::memcpy(&val, &it->second, sizeof(T));
@@ -1280,25 +1292,32 @@ bool cheat_manager_dialog::convert_and_search()
 
 	if (!new_results.empty())
 	{
-		std::map<u32, T> current_values;
-		cpu_thread::suspend_all(nullptr, {}, [&]()
+		std::vector<std::pair<u32, T>> current_values;
+		current_values.reserve(new_results.size());
+
+		cpu_thread::suspend_all(nullptr, {}, [&]() -> void
 		{
 			for (const auto& off : new_results)
 			{
 				if (vm::check_addr<sizeof(T)>(off))
 				{
-					current_values[off] = *vm::get_super_ptr<T>(off);
+					const to_be_t<T> be_value = *vm::get_super_ptr<T>(off);
+					current_values.emplace_back(off, static_cast<T>(be_value));
 				}
 			}
 		});
 
 		last_search_values.clear();
+		last_search_values.reserve(current_values.size());
+
 		for (const auto& [off, val] : current_values)
 		{
 			u64 storage = 0;
 			std::memcpy(&storage, &val, sizeof(T));
-			last_search_values[off] = storage;
+			last_search_values.emplace_back(off, storage);
 		}
+
+		std::sort(last_search_values.begin(), last_search_values.end());
 	}
 
 	offsets_found = std::move(new_results);
