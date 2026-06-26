@@ -839,7 +839,8 @@ enum cheat_table_columns : int
 	description,
 	type,
 	offset,
-	script
+	script,
+	locked
 };
 
 cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
@@ -855,8 +856,8 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	tbl_cheats->setSelectionMode(QAbstractItemView::SelectionMode::ExtendedSelection);
 	tbl_cheats->setSelectionBehavior(QAbstractItemView::SelectRows);
 	tbl_cheats->setContextMenuPolicy(Qt::CustomContextMenu);
-	tbl_cheats->setColumnCount(5);
-	tbl_cheats->setHorizontalHeaderLabels(QStringList() << tr("Game") << tr("Description") << tr("Type") << tr("Offset") << tr("Script"));
+	tbl_cheats->setColumnCount(6);
+	tbl_cheats->setHorizontalHeaderLabels(QStringList() << tr("Game") << tr("Description") << tr("Type") << tr("Offset") << tr("Script") << tr("Locked"));
 	main_layout->addWidget(tbl_cheats);
 
 	QHBoxLayout* btn_layout = new QHBoxLayout();
@@ -997,9 +998,9 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 			return;
 		}
 
-		if (column != cheat_table_columns::description && column != cheat_table_columns::script)
+		if (column != cheat_table_columns::description && column != cheat_table_columns::script && column != cheat_table_columns::locked)
 		{
-			log_cheat.fatal("A column other than description and script was edited");
+			log_cheat.fatal("A column other than description, script and locked was edited");
 			return;
 		}
 
@@ -1014,6 +1015,35 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		{
 		case cheat_table_columns::description: cheat->description = item->text().toStdString(); break;
 		case cheat_table_columns::script: cheat->red_script = item->text().toStdString(); break;
+		case cheat_table_columns::locked:
+			cheat->locked = (item->checkState() == Qt::Checked);
+			if (cheat->locked)
+			{
+				u32 final_offset = 0;
+				if (cheat_engine::resolve_script(final_offset, cheat->offset, cheat->red_script))
+				{
+					bool success = false;
+					switch (cheat->type)
+					{
+					case cheat_type::unsigned_8_cheat: cheat->locked_value = cheat_engine::get_value<u8>(final_offset, success); break;
+					case cheat_type::unsigned_16_cheat: cheat->locked_value = cheat_engine::get_value<u16>(final_offset, success); break;
+					case cheat_type::unsigned_32_cheat: cheat->locked_value = cheat_engine::get_value<u32>(final_offset, success); break;
+					case cheat_type::unsigned_64_cheat: cheat->locked_value = cheat_engine::get_value<u64>(final_offset, success); break;
+					case cheat_type::signed_8_cheat: cheat->locked_value = static_cast<u64>(cheat_engine::get_value<s8>(final_offset, success)); break;
+					case cheat_type::signed_16_cheat: cheat->locked_value = static_cast<u64>(cheat_engine::get_value<s16>(final_offset, success)); break;
+					case cheat_type::signed_32_cheat: cheat->locked_value = static_cast<u64>(cheat_engine::get_value<s32>(final_offset, success)); break;
+					case cheat_type::signed_64_cheat: cheat->locked_value = static_cast<u64>(cheat_engine::get_value<s64>(final_offset, success)); break;
+					case cheat_type::float_32_cheat:
+					{
+						const f32 fval = cheat_engine::get_value<f32>(final_offset, success);
+						std::memcpy(&cheat->locked_value, &fval, sizeof(f32));
+						break;
+					}
+					case cheat_type::max: break;
+					}
+				}
+			}
+			break;
 		default: break;
 		}
 
@@ -1228,12 +1258,21 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		menu->exec(globalPos);
 	});
 
+	m_lock_timer = new QTimer(this);
+	connect(m_lock_timer, &QTimer::timeout, this, &cheat_manager_dialog::update_locked_values);
+	m_lock_timer->start(100);
+
 	update_search_button_states();
 	update_cheat_list();
 }
 
 cheat_manager_dialog::~cheat_manager_dialog()
 {
+	if (m_lock_timer)
+	{
+		m_lock_timer->stop();
+	}
+
 	inst = nullptr;
 }
 
@@ -1585,12 +1624,73 @@ void cheat_manager_dialog::update_cheat_list()
 
 				tbl_cheats->setItem(row, cheat_table_columns::script, new QTableWidgetItem(QString::fromStdString(offset.second.red_script)));
 
+				QTableWidgetItem* item_locked = new QTableWidgetItem();
+				item_locked->setFlags(item_locked->flags() | Qt::ItemIsUserCheckable);
+				item_locked->setCheckState(offset.second.locked ? Qt::Checked : Qt::Unchecked);
+				item_locked->setTextAlignment(Qt::AlignCenter);
+				tbl_cheats->setItem(row, cheat_table_columns::locked, item_locked);
+
 				row++;
 			}
 		}
 	}
 
 	g_cheat.save();
+}
+
+void cheat_manager_dialog::update_locked_values()
+{
+	if (Emu.IsStopped())
+		return;
+
+	for (auto& game : g_cheat.cheats)
+	{
+		for (auto& [offset, cheat] : game.second)
+		{
+			if (!cheat.locked)
+				continue;
+
+			u32 final_offset = 0;
+			if (!cheat_engine::resolve_script(final_offset, cheat.offset, cheat.red_script))
+				continue;
+
+			switch (cheat.type)
+			{
+			case cheat_type::unsigned_8_cheat:
+				cheat_engine::set_value<u8>(final_offset, static_cast<u8>(cheat.locked_value));
+				break;
+			case cheat_type::unsigned_16_cheat:
+				cheat_engine::set_value<u16>(final_offset, static_cast<u16>(cheat.locked_value));
+				break;
+			case cheat_type::unsigned_32_cheat:
+				cheat_engine::set_value<u32>(final_offset, static_cast<u32>(cheat.locked_value));
+				break;
+			case cheat_type::unsigned_64_cheat:
+				cheat_engine::set_value<u64>(final_offset, cheat.locked_value);
+				break;
+			case cheat_type::signed_8_cheat:
+				cheat_engine::set_value<s8>(final_offset, static_cast<s8>(cheat.locked_value));
+				break;
+			case cheat_type::signed_16_cheat:
+				cheat_engine::set_value<s16>(final_offset, static_cast<s16>(cheat.locked_value));
+				break;
+			case cheat_type::signed_32_cheat:
+				cheat_engine::set_value<s32>(final_offset, static_cast<s32>(cheat.locked_value));
+				break;
+			case cheat_type::signed_64_cheat:
+				cheat_engine::set_value<s64>(final_offset, static_cast<s64>(cheat.locked_value));
+				break;
+			case cheat_type::float_32_cheat:
+			{
+				f32 fval = 0.f;
+				std::memcpy(&fval, &cheat.locked_value, sizeof(f32));
+				cheat_engine::set_value<f32>(final_offset, fval);
+				break;
+			}
+			case cheat_type::max: break;
+			}
+		}
+	}
 }
 
 QString cheat_manager_dialog::get_localized_cheat_type(cheat_type type)

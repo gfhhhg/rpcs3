@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QPushButton>
+#include <QTimer>
 
 #include <string>
 #include <vector>
@@ -96,12 +97,15 @@ protected:
 	std::vector<u32> offsets_found;
 	std::vector<std::pair<u32, u64>> last_search_values;
 
+	QTimer* m_lock_timer = nullptr;
+
 	cheat_engine g_cheat;
 
 private:
 	static cheat_manager_dialog* inst;
 
 	void update_search_button_states();
+	void update_locked_values();
 
 	QString get_localized_cheat_type(cheat_type type);
 	QString get_localized_compare_mode(search_compare_mode mode);
