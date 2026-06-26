@@ -86,6 +86,7 @@ protected:
 	QComboBox* cbx_cheat_search_type = nullptr;
 	QComboBox* cbx_compare_mode = nullptr;
 
+	QPushButton* btn_new_search = nullptr;
 	QPushButton* btn_filter_results = nullptr;
 
 	u32 current_offset{};
@@ -96,6 +97,8 @@ protected:
 
 private:
 	static cheat_manager_dialog* inst;
+
+	void update_search_button_states();
 
 	QString get_localized_cheat_type(cheat_type type);
 	QString get_localized_compare_mode(search_compare_mode mode);

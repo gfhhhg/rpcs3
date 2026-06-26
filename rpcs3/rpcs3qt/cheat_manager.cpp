@@ -749,7 +749,7 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	QGroupBox* grp_add_cheat              = new QGroupBox(tr("Cheat Search"));
 	QVBoxLayout* grp_add_cheat_layout     = new QVBoxLayout();
 	QHBoxLayout* grp_add_cheat_sub_layout = new QHBoxLayout();
-	QPushButton* btn_new_search           = new QPushButton(tr("New Search"));
+	btn_new_search                        = new QPushButton(tr("New Search"));
 	btn_new_search->setEnabled(false);
 	btn_filter_results                    = new QPushButton(tr("Filter Results"));
 	btn_filter_results->setEnabled(false);
@@ -1051,99 +1051,12 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	{
 		const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 		edt_cheat_search_value2->setEnabled(mode == search_compare_mode::between);
-
-		const search_compare_mode changed_modes[] = {
-			search_compare_mode::changed,
-			search_compare_mode::unchanged,
-			search_compare_mode::increased,
-			search_compare_mode::decreased,
-			search_compare_mode::increased_by,
-			search_compare_mode::decreased_by
-		};
-
-		bool requires_filter = false;
-		for (const auto& m : changed_modes)
-		{
-			if (mode == m)
-			{
-				requires_filter = true;
-				break;
-			}
-		}
-
-		if (btn_filter_results)
-		{
-			if (requires_filter)
-			{
-				btn_filter_results->setEnabled(!offsets_found.empty());
-			}
-			else
-			{
-				btn_filter_results->setEnabled(!edt_cheat_search_value->text().isEmpty() && !offsets_found.empty());
-			}
-		}
+		update_search_button_states();
 	});
 
-	connect(edt_cheat_search_value, &QLineEdit::textChanged, this, [btn_new_search, this](const QString& text)
+	connect(edt_cheat_search_value, &QLineEdit::textChanged, this, [this](const QString& /*text*/)
 	{
-		if (btn_new_search)
-		{
-			const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
-			const search_compare_mode changed_modes[] = {
-				search_compare_mode::changed,
-				search_compare_mode::unchanged,
-				search_compare_mode::increased,
-				search_compare_mode::decreased,
-				search_compare_mode::increased_by,
-				search_compare_mode::decreased_by
-			};
-
-			bool requires_filter = false;
-			for (const auto& m : changed_modes)
-			{
-				if (mode == m)
-				{
-					requires_filter = true;
-					break;
-				}
-			}
-
-			if (!requires_filter)
-			{
-				btn_new_search->setEnabled(!text.isEmpty());
-			}
-		}
-		if (btn_filter_results)
-		{
-			const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
-			const search_compare_mode changed_modes[] = {
-				search_compare_mode::changed,
-				search_compare_mode::unchanged,
-				search_compare_mode::increased,
-				search_compare_mode::decreased,
-				search_compare_mode::increased_by,
-				search_compare_mode::decreased_by
-			};
-
-			bool is_changed_mode = false;
-			for (const auto& m : changed_modes)
-			{
-				if (mode == m)
-				{
-					is_changed_mode = true;
-					break;
-				}
-			}
-
-			if (is_changed_mode)
-			{
-				btn_filter_results->setEnabled(!offsets_found.empty());
-			}
-			else
-			{
-				btn_filter_results->setEnabled(!text.isEmpty() && !offsets_found.empty());
-			}
-		}
+		update_search_button_states();
 	});
 
 	connect(btn_filter_results, &QPushButton::clicked, [this](bool /*checked*/) { do_the_search(); });
@@ -1192,6 +1105,7 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		menu->exec(globalPos);
 	});
 
+	update_search_button_states();
 	update_cheat_list();
 }
 
@@ -1366,9 +1280,28 @@ void cheat_manager_dialog::do_the_search()
 
 	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 
-	if (mode == search_compare_mode::changed && offsets_found.empty())
+	const search_compare_mode filter_only_modes[] = {
+		search_compare_mode::changed,
+		search_compare_mode::unchanged,
+		search_compare_mode::increased,
+		search_compare_mode::decreased,
+		search_compare_mode::increased_by,
+		search_compare_mode::decreased_by
+	};
+
+	bool is_filter_only = false;
+	for (const auto& m : filter_only_modes)
 	{
-		QMessageBox::warning(this, tr("Invalid Operation"), tr("Cannot use 'Changed' mode for a new search. First perform a search with a specific value."), QMessageBox::Ok);
+		if (mode == m)
+		{
+			is_filter_only = true;
+			break;
+		}
+	}
+
+	if (is_filter_only && offsets_found.empty())
+	{
+		QMessageBox::warning(this, tr("Invalid Operation"), tr("This search mode can only be used after an initial search. First perform a search with a specific value."), QMessageBox::Ok);
 		return;
 	}
 
@@ -1417,34 +1350,7 @@ void cheat_manager_dialog::do_the_search()
 		}
 	}
 
-	const search_compare_mode mode_after = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
-	const search_compare_mode changed_modes_after[] = {
-		search_compare_mode::changed,
-		search_compare_mode::unchanged,
-		search_compare_mode::increased,
-		search_compare_mode::decreased,
-		search_compare_mode::increased_by,
-		search_compare_mode::decreased_by
-	};
-
-	bool is_changed_mode_after = false;
-	for (const auto& m : changed_modes_after)
-	{
-		if (mode_after == m)
-		{
-			is_changed_mode_after = true;
-			break;
-		}
-	}
-
-	if (is_changed_mode_after)
-	{
-		btn_filter_results->setEnabled(!offsets_found.empty());
-	}
-	else
-	{
-		btn_filter_results->setEnabled(!offsets_found.empty() && edt_cheat_search_value && !edt_cheat_search_value->text().isEmpty());
-	}
+	update_search_button_states();
 }
 
 void cheat_manager_dialog::update_cheat_list()
@@ -1525,4 +1431,53 @@ QString cheat_manager_dialog::get_localized_compare_mode(search_compare_mode mod
 	case search_compare_mode::max: break;
 	}
 	return QString::fromStdString(fmt::format("%s", mode));
+}
+
+void cheat_manager_dialog::update_search_button_states()
+{
+	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
+
+	const search_compare_mode no_value_modes[] = {
+		search_compare_mode::changed,
+		search_compare_mode::unchanged,
+		search_compare_mode::increased,
+		search_compare_mode::decreased
+	};
+
+	bool needs_value = true;
+	for (const auto& m : no_value_modes)
+	{
+		if (mode == m)
+		{
+			needs_value = false;
+			break;
+		}
+	}
+
+	const bool has_value = !edt_cheat_search_value->text().isEmpty();
+	const bool has_results = !offsets_found.empty();
+
+	if (btn_new_search)
+	{
+		if (needs_value)
+		{
+			btn_new_search->setEnabled(has_value);
+		}
+		else
+		{
+			btn_new_search->setEnabled(false);
+		}
+	}
+
+	if (btn_filter_results)
+	{
+		if (needs_value)
+		{
+			btn_filter_results->setEnabled(has_value && has_results);
+		}
+		else
+		{
+			btn_filter_results->setEnabled(has_results);
+		}
+	}
 }
