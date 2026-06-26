@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -303,39 +305,229 @@ bool cheat_engine::resolve_script(u32& final_offset, const u32 offset, std::stri
 }
 
 template <typename T>
-std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_filter)
+std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_filter,
+	search_compare_mode mode, const T value2, const std::map<u32, T>* prev_values)
 {
 	std::vector<u32> results;
-
-	to_be_t<T> value_swapped = value;
 
 	if (Emu.IsStopped())
 		return {};
 
 	cpu_thread::suspend_all(nullptr, {}, [&]
 	{
+		auto compare_value = [&](const T& mem_value) -> bool
+		{
+			switch (mode)
+			{
+			case search_compare_mode::equal:
+				return mem_value == value;
+			case search_compare_mode::not_equal:
+				return mem_value != value;
+			case search_compare_mode::greater_than:
+				return mem_value > value;
+			case search_compare_mode::less_than:
+				return mem_value < value;
+			case search_compare_mode::between:
+				return (mem_value >= value) && (mem_value <= value2);
+			default:
+				return mem_value == value;
+			}
+		};
+
+		auto compare_with_prev = [&](const T& mem_value, u32 off) -> bool
+		{
+			if (!prev_values)
+				return false;
+
+			const auto it = prev_values->find(off);
+			if (it == prev_values->end())
+				return false;
+
+			const T& prev_value = it->second;
+
+			switch (mode)
+			{
+			case search_compare_mode::changed:
+				return mem_value != prev_value;
+			case search_compare_mode::unchanged:
+				return mem_value == prev_value;
+			case search_compare_mode::increased:
+				return mem_value > prev_value;
+			case search_compare_mode::decreased:
+				return mem_value < prev_value;
+			case search_compare_mode::increased_by:
+				return (mem_value - prev_value) == value;
+			case search_compare_mode::decreased_by:
+				return (prev_value - mem_value) == value;
+			default:
+				return false;
+			}
+		};
+
 		if (!to_filter.empty())
 		{
 			for (const auto& off : to_filter)
 			{
 				if (vm::check_addr<sizeof(T)>(off))
 				{
-					if (*vm::get_super_ptr<T>(off) == value_swapped)
-						results.push_back(off);
+					const T mem_value = *vm::get_super_ptr<T>(off);
+
+					if (mode == search_compare_mode::changed ||
+						mode == search_compare_mode::unchanged ||
+						mode == search_compare_mode::increased ||
+						mode == search_compare_mode::decreased ||
+						mode == search_compare_mode::increased_by ||
+						mode == search_compare_mode::decreased_by)
+					{
+						if (compare_with_prev(mem_value, off))
+							results.push_back(off);
+					}
+					else
+					{
+						if (compare_value(mem_value))
+							results.push_back(off);
+					}
 				}
 			}
 		}
 		else
 		{
-			// Looks through mapped memory
+			if (mode == search_compare_mode::changed ||
+				mode == search_compare_mode::unchanged ||
+				mode == search_compare_mode::increased ||
+				mode == search_compare_mode::decreased ||
+				mode == search_compare_mode::increased_by ||
+				mode == search_compare_mode::decreased_by)
+			{
+				return results;
+			}
+
 			for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
 			{
 				if (vm::check_addr(page_start))
 				{
-					// Assumes the values are aligned
 					for (u32 index = 0; index < 4096; index += sizeof(T))
 					{
-						if (*vm::get_super_ptr<T>(page_start + index) == value_swapped)
+						const T mem_value = *vm::get_super_ptr<T>(page_start + index);
+						if (compare_value(mem_value))
+							results.push_back(page_start + index);
+					}
+				}
+			}
+		}
+	});
+
+	return results;
+}
+
+template <>
+std::vector<u32> cheat_engine::search<f32>(const f32 value, const std::vector<u32>& to_filter,
+	search_compare_mode mode, const f32 value2, const std::map<u32, f32>* prev_values)
+{
+	std::vector<u32> results;
+
+	constexpr f32 epsilon = 0.0001f;
+
+	if (Emu.IsStopped())
+		return {};
+
+	cpu_thread::suspend_all(nullptr, {}, [&]
+	{
+		auto compare_value = [&](const f32& mem_value) -> bool
+		{
+			switch (mode)
+			{
+			case search_compare_mode::equal:
+				return std::abs(mem_value - value) < epsilon;
+			case search_compare_mode::not_equal:
+				return std::abs(mem_value - value) >= epsilon;
+			case search_compare_mode::greater_than:
+				return mem_value > value;
+			case search_compare_mode::less_than:
+				return mem_value < value;
+			case search_compare_mode::between:
+				return (mem_value >= value) && (mem_value <= value2);
+			default:
+				return std::abs(mem_value - value) < epsilon;
+			}
+		};
+
+		auto compare_with_prev = [&](const f32& mem_value, u32 off) -> bool
+		{
+			if (!prev_values)
+				return false;
+
+			const auto it = prev_values->find(off);
+			if (it == prev_values->end())
+				return false;
+
+			const f32& prev_value = it->second;
+
+			switch (mode)
+			{
+			case search_compare_mode::changed:
+				return std::abs(mem_value - prev_value) >= epsilon;
+			case search_compare_mode::unchanged:
+				return std::abs(mem_value - prev_value) < epsilon;
+			case search_compare_mode::increased:
+				return mem_value > prev_value;
+			case search_compare_mode::decreased:
+				return mem_value < prev_value;
+			case search_compare_mode::increased_by:
+				return std::abs((mem_value - prev_value) - value) < epsilon;
+			case search_compare_mode::decreased_by:
+				return std::abs((prev_value - mem_value) - value) < epsilon;
+			default:
+				return false;
+			}
+		};
+
+		if (!to_filter.empty())
+		{
+			for (const auto& off : to_filter)
+			{
+				if (vm::check_addr<sizeof(f32)>(off))
+				{
+					const f32 mem_value = *vm::get_super_ptr<f32>(off);
+
+					if (mode == search_compare_mode::changed ||
+						mode == search_compare_mode::unchanged ||
+						mode == search_compare_mode::increased ||
+						mode == search_compare_mode::decreased ||
+						mode == search_compare_mode::increased_by ||
+						mode == search_compare_mode::decreased_by)
+					{
+						if (compare_with_prev(mem_value, off))
+							results.push_back(off);
+					}
+					else
+					{
+						if (compare_value(mem_value))
+							results.push_back(off);
+					}
+				}
+			}
+		}
+		else
+		{
+			if (mode == search_compare_mode::changed ||
+				mode == search_compare_mode::unchanged ||
+				mode == search_compare_mode::increased ||
+				mode == search_compare_mode::decreased ||
+				mode == search_compare_mode::increased_by ||
+				mode == search_compare_mode::decreased_by)
+			{
+				return results;
+			}
+
+			for (u32 page_start = 0x10000; page_start < 0xF0000000; page_start += 4096)
+			{
+				if (vm::check_addr(page_start))
+				{
+					for (u32 index = 0; index < 4096; index += sizeof(f32))
+					{
+						const f32 mem_value = *vm::get_super_ptr<f32>(page_start + index);
+						if (compare_value(mem_value))
 							results.push_back(page_start + index);
 					}
 				}
@@ -542,7 +734,10 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	btn_filter_results                    = new QPushButton(tr("Filter Results"));
 	btn_filter_results->setEnabled(false);
 	edt_cheat_search_value = new QLineEdit();
-	cbx_cheat_search_type  = new QComboBox();
+	edt_cheat_search_value2 = new QLineEdit();
+	edt_cheat_search_value2->setEnabled(false);
+	cbx_cheat_search_type = new QComboBox();
+	cbx_compare_mode = new QComboBox();
 
 	for (u64 i = 0; i < cheat_type_max; i++)
 	{
@@ -550,9 +745,19 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		cbx_cheat_search_type->addItem(item_text);
 	}
 	cbx_cheat_search_type->setCurrentIndex(static_cast<u8>(cheat_type::signed_32_cheat));
+
+	for (u64 i = 0; i < search_compare_mode_max; i++)
+	{
+		const QString item_text = get_localized_compare_mode(static_cast<search_compare_mode>(i));
+		cbx_compare_mode->addItem(item_text);
+	}
+	cbx_compare_mode->setCurrentIndex(static_cast<u8>(search_compare_mode::equal));
+
 	grp_add_cheat_sub_layout->addWidget(btn_new_search);
 	grp_add_cheat_sub_layout->addWidget(btn_filter_results);
 	grp_add_cheat_sub_layout->addWidget(edt_cheat_search_value);
+	grp_add_cheat_sub_layout->addWidget(cbx_compare_mode);
+	grp_add_cheat_sub_layout->addWidget(edt_cheat_search_value2);
 	grp_add_cheat_sub_layout->addWidget(cbx_cheat_search_type);
 	grp_add_cheat_layout->addLayout(grp_add_cheat_sub_layout);
 	lst_search = new QListWidget(this);
@@ -818,18 +1023,118 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	connect(btn_new_search, &QPushButton::clicked, [this](bool /*checked*/)
 	{
 		offsets_found.clear();
+		last_search_values.clear();
 		do_the_search();
+	});
+
+	connect(cbx_compare_mode, qOverload<int>(&QComboBox::currentIndexChanged), [this](int index)
+	{
+		const search_compare_mode mode = static_cast<search_compare_mode>(index);
+		edt_cheat_search_value2->setEnabled(mode == search_compare_mode::between);
+
+		const search_compare_mode changed_modes[] = {
+			search_compare_mode::changed,
+			search_compare_mode::unchanged,
+			search_compare_mode::increased,
+			search_compare_mode::decreased,
+			search_compare_mode::increased_by,
+			search_compare_mode::decreased_by
+		};
+
+		bool requires_filter = false;
+		for (const auto& m : changed_modes)
+		{
+			if (mode == m)
+			{
+				requires_filter = true;
+				break;
+			}
+		}
+
+		if (btn_new_search)
+		{
+			if (requires_filter)
+			{
+				btn_new_search->setEnabled(false);
+			}
+			else
+			{
+				btn_new_search->setEnabled(!edt_cheat_search_value->text().isEmpty());
+			}
+		}
+
+		if (btn_filter_results)
+		{
+			if (requires_filter)
+			{
+				btn_filter_results->setEnabled(!offsets_found.empty());
+			}
+			else
+			{
+				btn_filter_results->setEnabled(!edt_cheat_search_value->text().isEmpty() && !offsets_found.empty());
+			}
+		}
 	});
 
 	connect(edt_cheat_search_value, &QLineEdit::textChanged, this, [btn_new_search, this](const QString& text)
 	{
 		if (btn_new_search)
 		{
-			btn_new_search->setEnabled(!text.isEmpty());
+			const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
+			const search_compare_mode changed_modes[] = {
+				search_compare_mode::changed,
+				search_compare_mode::unchanged,
+				search_compare_mode::increased,
+				search_compare_mode::decreased,
+				search_compare_mode::increased_by,
+				search_compare_mode::decreased_by
+			};
+
+			bool requires_filter = false;
+			for (const auto& m : changed_modes)
+			{
+				if (mode == m)
+				{
+					requires_filter = true;
+					break;
+				}
+			}
+
+			if (!requires_filter)
+			{
+				btn_new_search->setEnabled(!text.isEmpty());
+			}
 		}
 		if (btn_filter_results)
 		{
-			btn_filter_results->setEnabled(!text.isEmpty() && !offsets_found.empty());
+			const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
+			const search_compare_mode changed_modes[] = {
+				search_compare_mode::changed,
+				search_compare_mode::unchanged,
+				search_compare_mode::increased,
+				search_compare_mode::decreased,
+				search_compare_mode::increased_by,
+				search_compare_mode::decreased_by
+			};
+
+			bool is_changed_mode = false;
+			for (const auto& m : changed_modes)
+			{
+				if (mode == m)
+				{
+					is_changed_mode = true;
+					break;
+				}
+			}
+
+			if (is_changed_mode)
+			{
+				btn_filter_results->setEnabled(!offsets_found.empty());
+			}
+			else
+			{
+				btn_filter_results->setEnabled(!text.isEmpty() && !offsets_found.empty());
+			}
 		}
 	});
 
@@ -945,14 +1250,91 @@ template <typename T>
 bool cheat_manager_dialog::convert_and_search()
 {
 	bool res_conv = false;
+	bool res_conv2 = false;
 	const QString to_search = edt_cheat_search_value->text();
+	const QString to_search2 = edt_cheat_search_value2->text();
 
-	const T value = convert_from_QString<T>(to_search, res_conv);
+	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
 
-	if (!res_conv)
-		return false;
+	const search_compare_mode no_value_modes[] = {
+		search_compare_mode::changed,
+		search_compare_mode::unchanged,
+		search_compare_mode::increased,
+		search_compare_mode::decreased
+	};
 
-	offsets_found = cheat_engine::search(value, offsets_found);
+	bool requires_value = true;
+	for (const auto& m : no_value_modes)
+	{
+		if (mode == m)
+		{
+			requires_value = false;
+			break;
+		}
+	}
+
+	T value = {};
+	if (requires_value)
+	{
+		value = convert_from_QString<T>(to_search, res_conv);
+		if (!res_conv)
+			return false;
+	}
+
+	T value2 = {};
+	if (mode == search_compare_mode::between)
+	{
+		value2 = convert_from_QString<T>(to_search2, res_conv2);
+		if (!res_conv2)
+			return false;
+	}
+
+	std::map<u32, T> prev_values;
+	if (mode == search_compare_mode::changed ||
+		mode == search_compare_mode::unchanged ||
+		mode == search_compare_mode::increased ||
+		mode == search_compare_mode::decreased ||
+		mode == search_compare_mode::increased_by ||
+		mode == search_compare_mode::decreased_by)
+	{
+		for (const auto& off : offsets_found)
+		{
+			const auto it = last_search_values.find(off);
+			if (it != last_search_values.end())
+			{
+				T val{};
+				std::memcpy(&val, &it->second, sizeof(T));
+				prev_values[off] = val;
+			}
+		}
+	}
+
+	std::vector<u32> new_results = cheat_engine::search(value, offsets_found, mode, value2, &prev_values);
+
+	if (!new_results.empty())
+	{
+		std::map<u32, T> current_values;
+		cpu_thread::suspend_all(nullptr, {}, [&]()
+		{
+			for (const auto& off : new_results)
+			{
+				if (vm::check_addr<sizeof(T)>(off))
+				{
+					current_values[off] = *vm::get_super_ptr<T>(off);
+				}
+			}
+		});
+
+		last_search_values.clear();
+		for (const auto& [off, val] : current_values)
+		{
+			u64 storage = 0;
+			std::memcpy(&storage, &val, sizeof(T));
+			last_search_values[off] = storage;
+		}
+	}
+
+	offsets_found = std::move(new_results);
 	return true;
 }
 
@@ -974,7 +1356,14 @@ void cheat_manager_dialog::do_the_search()
 {
 	bool res_conv = false;
 
-	// TODO: better way to do this?
+	const search_compare_mode mode = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
+
+	if (mode == search_compare_mode::changed && offsets_found.empty())
+	{
+		QMessageBox::warning(this, tr("Invalid Operation"), tr("Cannot use 'Changed' mode for a new search. First perform a search with a specific value."), QMessageBox::Ok);
+		return;
+	}
+
 	switch (static_cast<cheat_type>(cbx_cheat_search_type->currentIndex()))
 	{
 	case cheat_type::unsigned_8_cheat: res_conv = convert_and_search<u8>(); break;
@@ -1020,7 +1409,34 @@ void cheat_manager_dialog::do_the_search()
 		}
 	}
 
-	btn_filter_results->setEnabled(!offsets_found.empty() && edt_cheat_search_value && !edt_cheat_search_value->text().isEmpty());
+	const search_compare_mode mode_after = static_cast<search_compare_mode>(cbx_compare_mode->currentIndex());
+	const search_compare_mode changed_modes_after[] = {
+		search_compare_mode::changed,
+		search_compare_mode::unchanged,
+		search_compare_mode::increased,
+		search_compare_mode::decreased,
+		search_compare_mode::increased_by,
+		search_compare_mode::decreased_by
+	};
+
+	bool is_changed_mode_after = false;
+	for (const auto& m : changed_modes_after)
+	{
+		if (mode_after == m)
+		{
+			is_changed_mode_after = true;
+			break;
+		}
+	}
+
+	if (is_changed_mode_after)
+	{
+		btn_filter_results->setEnabled(!offsets_found.empty());
+	}
+	else
+	{
+		btn_filter_results->setEnabled(!offsets_found.empty() && edt_cheat_search_value && !edt_cheat_search_value->text().isEmpty());
+	}
 }
 
 void cheat_manager_dialog::update_cheat_list()
@@ -1081,4 +1497,24 @@ QString cheat_manager_dialog::get_localized_cheat_type(cheat_type type)
 	case cheat_type::max: break;
 	}
 	return QString::fromStdString(fmt::format("%s", type));
+}
+
+QString cheat_manager_dialog::get_localized_compare_mode(search_compare_mode mode)
+{
+	switch (mode)
+	{
+	case search_compare_mode::equal: return tr("Equals");
+	case search_compare_mode::not_equal: return tr("Not Equals");
+	case search_compare_mode::greater_than: return tr("Greater Than");
+	case search_compare_mode::less_than: return tr("Less Than");
+	case search_compare_mode::between: return tr("Between");
+	case search_compare_mode::changed: return tr("Changed");
+	case search_compare_mode::unchanged: return tr("Unchanged");
+	case search_compare_mode::increased: return tr("Increased");
+	case search_compare_mode::decreased: return tr("Decreased");
+	case search_compare_mode::increased_by: return tr("Increased By");
+	case search_compare_mode::decreased_by: return tr("Decreased By");
+	case search_compare_mode::max: break;
+	}
+	return QString::fromStdString(fmt::format("%s", mode));
 }

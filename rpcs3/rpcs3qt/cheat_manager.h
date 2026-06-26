@@ -33,7 +33,9 @@ public:
 	static bool resolve_script(u32& final_offset, const u32 offset, std::string_view red_script);
 
 	template <typename T>
-	static std::vector<u32> search(const T value, const std::vector<u32>& to_filter);
+	static std::vector<u32> search(const T value, const std::vector<u32>& to_filter,
+		search_compare_mode mode = search_compare_mode::equal, const T value2 = {},
+		const std::map<u32, T>* prev_values = nullptr);
 
 	template <typename T>
 	static T get_value(const u32 offset, bool& success);
@@ -80,12 +82,15 @@ protected:
 	QPushButton* btn_apply = nullptr;
 
 	QLineEdit* edt_cheat_search_value = nullptr;
+	QLineEdit* edt_cheat_search_value2 = nullptr;
 	QComboBox* cbx_cheat_search_type = nullptr;
+	QComboBox* cbx_compare_mode = nullptr;
 
 	QPushButton* btn_filter_results = nullptr;
 
 	u32 current_offset{};
 	std::vector<u32> offsets_found;
+	std::map<u32, u64> last_search_values;
 
 	cheat_engine g_cheat;
 
@@ -93,4 +98,5 @@ private:
 	static cheat_manager_dialog* inst;
 
 	QString get_localized_cheat_type(cheat_type type);
+	QString get_localized_compare_mode(search_compare_mode mode);
 };
