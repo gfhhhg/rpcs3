@@ -27,6 +27,31 @@ void fmt_class_string<cheat_type>::format(std::string& out, u64 arg)
 	});
 }
 
+template <>
+void fmt_class_string<search_compare_mode>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](search_compare_mode value)
+	{
+		switch (value)
+		{
+		case search_compare_mode::equal: return "Equals";
+		case search_compare_mode::not_equal: return "Not Equals";
+		case search_compare_mode::greater_than: return "Greater Than";
+		case search_compare_mode::less_than: return "Less Than";
+		case search_compare_mode::between: return "Between";
+		case search_compare_mode::changed: return "Changed";
+		case search_compare_mode::unchanged: return "Unchanged";
+		case search_compare_mode::increased: return "Increased";
+		case search_compare_mode::decreased: return "Decreased";
+		case search_compare_mode::increased_by: return "Increased By";
+		case search_compare_mode::decreased_by: return "Decreased By";
+		case search_compare_mode::max: break;
+		}
+
+		return unknown;
+	});
+}
+
 bool cheat_info::from_str(std::string_view cheat_line)
 {
 	auto cheat_vec = fmt::split(cheat_line, {"@@@"}, false);
