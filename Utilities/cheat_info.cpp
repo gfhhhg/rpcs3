@@ -58,7 +58,9 @@ bool cheat_info::from_str(std::string_view cheat_line)
 	auto cheat_vec = fmt::split(cheat_line, {"@@@"}, false);
 
 	s64 val64 = 0;
-	if (cheat_vec.size() != 5 || !try_to_int64(&val64, cheat_vec[2], 0, cheat_type_max - 1))
+	const bool has_locked_data = (cheat_vec.size() >= 7);
+
+	if ((cheat_vec.size() < 5 || (has_locked_data && cheat_vec.size() < 7)) || !try_to_int64(&val64, cheat_vec[2], 0, cheat_type_max - 1))
 	{
 		log_cheat.error("Failed to parse cheat line: '%s'", cheat_line);
 		return false;
@@ -70,11 +72,22 @@ bool cheat_info::from_str(std::string_view cheat_line)
 	offset      = std::stoul(cheat_vec[3]);
 	red_script  = std::move(cheat_vec[4]);
 
+	if (has_locked_data)
+	{
+		locked = (cheat_vec[5] == "1");
+		locked_value = std::stoull(cheat_vec[6]);
+	}
+	else
+	{
+		locked = false;
+		locked_value = 0;
+	}
+
 	return true;
 }
 
 std::string cheat_info::to_str() const
 {
-	std::string cheat_str = game + "@@@" + description + "@@@" + std::to_string(static_cast<u8>(type)) + "@@@" + std::to_string(offset) + "@@@" + red_script + "@@@";
+	std::string cheat_str = game + "@@@" + description + "@@@" + std::to_string(static_cast<u8>(type)) + "@@@" + std::to_string(offset) + "@@@" + red_script + "@@@" + (locked ? "1" : "0") + "@@@" + std::to_string(locked_value) + "@@@";
 	return cheat_str;
 }

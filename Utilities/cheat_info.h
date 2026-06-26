@@ -46,6 +46,8 @@ struct cheat_info
 	cheat_type type = cheat_type::max;
 	u32 offset{};
 	std::string red_script{};
+	bool locked = false;
+	u64 locked_value = 0;
 
 	bool from_str(std::string_view cheat_line);
 	std::string to_str() const;
