@@ -38,7 +38,7 @@ YAML::Emitter& operator<<(YAML::Emitter& out, const cheat_info& rhs)
 	std::string type_formatted;
 	fmt::append(type_formatted, "%s", rhs.type);
 
-	out << YAML::BeginSeq << rhs.description << type_formatted << rhs.red_script << YAML::EndSeq;
+	out << YAML::BeginSeq << rhs.description << type_formatted << rhs.red_script << (rhs.locked ? "1" : "0") << std::to_string(rhs.locked_value) << YAML::EndSeq;
 
 	return out;
 }
@@ -200,6 +200,12 @@ bool cheat_engine::erase(const std::string& game, const u32 offset)
 
 bool cheat_engine::resolve_script(u32& final_offset, const u32 offset, std::string_view red_script)
 {
+	if (red_script.empty())
+	{
+		final_offset = offset;
+		return true;
+	}
+
 	enum operand
 	{
 		operand_equal,
