@@ -36,10 +36,12 @@ public:
 	template <typename T>
 	static std::vector<u32> search(const T value, const std::vector<u32>& to_filter,
 		search_compare_mode mode = search_compare_mode::equal, const T value2 = {},
-		const std::map<u32, T>* prev_values = nullptr);
+		const std::map<u32, T>* prev_values = nullptr,
+		u32 mem_start = 0x00010000, u32 mem_end = 0xC0000000);
 
 	template <typename T>
-	static std::vector<std::pair<u32, T>> scan_all_memory(u32 max_entries = 5000000, bool use_chunked_scan = true);
+	static std::vector<std::pair<u32, T>> scan_all_memory(u32 max_entries = 5000000, bool use_chunked_scan = true,
+		u32 mem_start = 0x00010000, u32 mem_end = 0xC0000000);
 
 	template <typename T>
 	static T get_value(const u32 offset, bool& success);
@@ -89,6 +91,9 @@ protected:
 	QLineEdit* edt_cheat_search_value2 = nullptr;
 	QComboBox* cbx_cheat_search_type = nullptr;
 	QComboBox* cbx_compare_mode = nullptr;
+	QComboBox* cbx_memory_range = nullptr;
+	QLineEdit* edt_mem_start = nullptr;
+	QLineEdit* edt_mem_end = nullptr;
 
 	QPushButton* btn_new_search = nullptr;
 	QPushButton* btn_filter_results = nullptr;
