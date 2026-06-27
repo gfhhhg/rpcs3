@@ -39,7 +39,7 @@ public:
 		const std::map<u32, T>* prev_values = nullptr);
 
 	template <typename T>
-	static std::vector<std::pair<u32, T>> scan_all_memory(u32 max_entries = 5000000);
+	static std::vector<std::pair<u32, T>> scan_all_memory(u32 max_entries = 5000000, bool use_chunked_scan = true);
 
 	template <typename T>
 	static T get_value(const u32 offset, bool& success);

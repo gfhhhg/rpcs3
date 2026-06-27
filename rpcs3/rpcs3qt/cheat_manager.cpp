@@ -479,31 +479,86 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 }
 
 template <typename T>
-std::vector<std::pair<u32, T>> cheat_engine::scan_all_memory(u32 max_entries)
+std::vector<std::pair<u32, T>> cheat_engine::scan_all_memory(u32 max_entries, bool use_chunked_scan)
 {
 	std::vector<std::pair<u32, T>> results;
-	results.reserve(max_entries);
+	results.reserve(std::min(max_entries, 100000u)); // Reserve a smaller initial capacity
 
 	if (Emu.IsStopped())
 		return results;
 
+	// Chunk size for memory scanning (64KB blocks, similar to EdiZon)
+	constexpr u32 CHUNK_SIZE = 65536;
+	constexpr u32 PAGE_SIZE = 4096;
+
 	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
 	{
-		for (u32 page_start = 0x10000; page_start < 0xF0000000 && results.size() < max_entries; page_start += 4096)
+		if (use_chunked_scan)
 		{
-			if (vm::check_addr(page_start))
+			// Chunked scanning approach: process memory in chunks
+			// This reduces memory pressure and allows for faster results
+			u32 chunks_processed = 0;
+			u32 chunk_addr = 0x10000;
+
+			while (chunk_addr < 0xF0000000 && results.size() < max_entries)
 			{
-				for (u32 index = 0; index < 4096 && results.size() < max_entries; index += sizeof(T))
+				// Read a chunk of memory
+				u8 buffer[CHUNK_SIZE];
+
+				for (u32 offset = 0; offset < CHUNK_SIZE; offset += PAGE_SIZE)
 				{
-					const u32 addr = page_start + index;
-					const to_be_t<T> be_value = *vm::get_super_ptr<T>(addr);
-					results.emplace_back(addr, static_cast<T>(be_value));
+					const u32 page_addr = chunk_addr + offset;
+					if (!vm::check_addr(page_addr))
+					{
+						// Mark as unmapped in buffer
+						std::memset(buffer + offset, 0, PAGE_SIZE);
+					}
+				}
+
+				// Process chunk data
+				for (u32 offset = 0; offset < CHUNK_SIZE && results.size() < max_entries; offset += sizeof(T))
+				{
+					const u32 addr = chunk_addr + offset;
+
+					// Only process aligned addresses within valid pages
+					if (vm::check_addr(addr))
+					{
+						const to_be_t<T> be_value = *vm::get_super_ptr<T>(addr);
+						results.emplace_back(addr, static_cast<T>(be_value));
+					}
+				}
+
+				chunk_addr += CHUNK_SIZE;
+				chunks_processed++;
+
+				// Log progress every 256 chunks (16MB)
+				if (chunks_processed % 256 == 0)
+				{
+					log_cheat.notice("scan_all_memory: processed %u chunks, found %zu entries",
+						chunks_processed, results.size());
+				}
+			}
+		}
+		else
+		{
+			// Original scanning approach with max_entries limit
+			for (u32 page_start = 0x10000; page_start < 0xF0000000 && results.size() < max_entries; page_start += PAGE_SIZE)
+			{
+				if (vm::check_addr(page_start))
+				{
+					for (u32 index = 0; index < PAGE_SIZE && results.size() < max_entries; index += sizeof(T))
+					{
+						const u32 addr = page_start + index;
+						const to_be_t<T> be_value = *vm::get_super_ptr<T>(addr);
+						results.emplace_back(addr, static_cast<T>(be_value));
+					}
 				}
 			}
 		}
 	});
 
-	log_cheat.notice("scan_all_memory: scanned %zu entries (max %u), sizeof(T)=%u", results.size(), max_entries, static_cast<u32>(sizeof(T)));
+	log_cheat.notice("scan_all_memory: scanned %zu entries (max %u), sizeof(T)=%u, chunked=%s",
+		results.size(), max_entries, static_cast<u32>(sizeof(T)), use_chunked_scan ? "yes" : "no");
 
 	if (!results.empty())
 	{
@@ -516,6 +571,83 @@ std::vector<std::pair<u32, T>> cheat_engine::scan_all_memory(u32 max_entries)
 				log_cheat.notice("scan_all_memory sample [%u]: addr=0x%08X, value=%f", i, addr, val);
 			else
 				log_cheat.notice("scan_all_memory sample [%u]: addr=0x%08X, value=%llu", i, addr, static_cast<u64>(val));
+		}
+	}
+
+	return results;
+}
+
+// Specialization for f32 with chunked scanning
+template <>
+std::vector<std::pair<u32, f32>> cheat_engine::scan_all_memory<f32>(u32 max_entries, bool use_chunked_scan)
+{
+	std::vector<std::pair<u32, f32>> results;
+	results.reserve(std::min(max_entries, 100000u));
+
+	if (Emu.IsStopped())
+		return results;
+
+	constexpr u32 CHUNK_SIZE = 65536;
+	constexpr u32 PAGE_SIZE = 4096;
+
+	cpu_thread::suspend_all(nullptr, {}, [&]() -> void
+	{
+		if (use_chunked_scan)
+		{
+			u32 chunks_processed = 0;
+			u32 chunk_addr = 0x10000;
+
+			while (chunk_addr < 0xF0000000 && results.size() < max_entries)
+			{
+				for (u32 offset = 0; offset < CHUNK_SIZE && results.size() < max_entries; offset += sizeof(f32))
+				{
+					const u32 addr = chunk_addr + offset;
+
+					if (vm::check_addr(addr))
+					{
+						const to_be_t<f32> be_value = *vm::get_super_ptr<f32>(addr);
+						results.emplace_back(addr, static_cast<f32>(be_value));
+					}
+				}
+
+				chunk_addr += CHUNK_SIZE;
+				chunks_processed++;
+
+				if (chunks_processed % 256 == 0)
+				{
+					log_cheat.notice("scan_all_memory<f32>: processed %u chunks, found %zu entries",
+						chunks_processed, results.size());
+				}
+			}
+		}
+		else
+		{
+			for (u32 page_start = 0x10000; page_start < 0xF0000000 && results.size() < max_entries; page_start += PAGE_SIZE)
+			{
+				if (vm::check_addr(page_start))
+				{
+					for (u32 index = 0; index < PAGE_SIZE && results.size() < max_entries; index += sizeof(f32))
+					{
+						const u32 addr = page_start + index;
+						const to_be_t<f32> be_value = *vm::get_super_ptr<f32>(addr);
+						results.emplace_back(addr, static_cast<f32>(be_value));
+					}
+				}
+			}
+		}
+	});
+
+	log_cheat.notice("scan_all_memory<f32>: scanned %zu entries (max %u), chunked=%s",
+		results.size(), max_entries, use_chunked_scan ? "yes" : "no");
+
+	if (!results.empty())
+	{
+		const u32 sample_count = std::min<u32>(5, static_cast<u32>(results.size()));
+		for (u32 i = 0; i < sample_count; i++)
+		{
+			const u32 idx = results.size() / sample_count * i;
+			const auto& [addr, val] = results[idx];
+			log_cheat.notice("scan_all_memory<f32> sample [%u]: addr=0x%08X, value=%f", i, addr, val);
 		}
 	}
 
@@ -1388,19 +1520,27 @@ bool cheat_manager_dialog::convert_and_search()
 			return false;
 	}
 
+	// For unknown_initial mode: use chunked scan with a reasonable limit
+	// to prevent memory exhaustion while still scanning enough addresses
+	constexpr u32 MAX_INITIAL_SCAN_ENTRIES = 3000000; // 3 million entries max for unknown_initial
+
 	if (mode == search_compare_mode::unknown_initial)
 	{
-		log_cheat.notice("convert_and_search: starting unknown_initial scan for type size=%u", static_cast<u32>(sizeof(T)));
+		log_cheat.notice("convert_and_search: starting unknown_initial scan for type size=%u, max_entries=%u",
+			static_cast<u32>(sizeof(T)), MAX_INITIAL_SCAN_ENTRIES);
 
-		const auto all_values = cheat_engine::scan_all_memory<T>();
+		// Use chunked scan to reduce memory pressure
+		const auto all_values = cheat_engine::scan_all_memory<T>(MAX_INITIAL_SCAN_ENTRIES, true);
 
 		log_cheat.notice("convert_and_search: unknown_initial got %zu entries from scan", all_values.size());
 
 		offsets_found.clear();
 		last_search_values.clear();
 
-		offsets_found.reserve(all_values.size());
-		last_search_values.reserve(all_values.size());
+		// Reserve a reasonable size based on actual results
+		const usz reserve_size = std::min(all_values.size(), MAX_INITIAL_SCAN_ENTRIES);
+		offsets_found.reserve(reserve_size);
+		last_search_values.reserve(reserve_size);
 
 		for (const auto& [off, val] : all_values)
 		{
