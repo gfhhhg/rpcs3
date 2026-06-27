@@ -10,7 +10,7 @@ namespace YAML
 	{
 		static bool decode(const Node& node, cheat_info& rhs)
 		{
-			if (node.size() != 3)
+			if (node.size() != 3 && node.size() != 5)
 			{
 				return false;
 			}
@@ -23,6 +23,18 @@ namespace YAML
 				return false;
 			rhs.type       = cheat_type{::narrow<u8>(type64)};
 			rhs.red_script = node[2].Scalar();
+
+			if (node.size() >= 5)
+			{
+				rhs.locked = (node[3].Scalar() == "1");
+				rhs.locked_value = std::stoull(node[4].Scalar());
+			}
+			else
+			{
+				rhs.locked = false;
+				rhs.locked_value = 0;
+			}
+
 			return true;
 		}
 	};
