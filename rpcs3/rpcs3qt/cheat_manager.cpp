@@ -1538,7 +1538,7 @@ bool cheat_manager_dialog::convert_and_search()
 		last_search_values.clear();
 
 		// Reserve a reasonable size based on actual results
-		const usz reserve_size = std::min(all_values.size(), MAX_INITIAL_SCAN_ENTRIES);
+		const usz reserve_size = std::min<usz>(all_values.size(), static_cast<usz>(MAX_INITIAL_SCAN_ENTRIES));
 		offsets_found.reserve(reserve_size);
 		last_search_values.reserve(reserve_size);
 
