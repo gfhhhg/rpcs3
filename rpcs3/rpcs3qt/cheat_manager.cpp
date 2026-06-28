@@ -1091,6 +1091,18 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		}
 	});
 
+	// Progress bar
+	QHBoxLayout* progress_layout = new QHBoxLayout();
+	lbl_progress = new QLabel(tr("Ready"));
+	lbl_progress->setAlignment(Qt::AlignLeft);
+	progress_bar = new QProgressBar();
+	progress_bar->setRange(0, 100);
+	progress_bar->setValue(0);
+	progress_bar->setTextVisible(false);
+	progress_layout->addWidget(lbl_progress);
+	progress_layout->addWidget(progress_bar);
+	grp_add_cheat_layout->addLayout(progress_layout);
+
 	lst_search = new QListWidget(this);
 	lst_search->setSelectionMode(QAbstractItemView::SelectionMode::SingleSelection);
 	lst_search->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -1584,15 +1596,23 @@ bool cheat_manager_dialog::convert_and_search()
 	// For unknown_initial mode: use chunked scan with a reasonable limit
 	// to prevent memory exhaustion while still scanning enough addresses
 	// PS3 effective memory is 256MB (0x30000000~0x3FFFFFFF)
-	constexpr u32 MAX_INITIAL_SCAN_ENTRIES = 100000000; // 10 million entries max for unknown_initial
+	constexpr u32 MAX_INITIAL_SCAN_ENTRIES = 10000000; // 10 million entries max for unknown_initial
 
 	if (mode == search_compare_mode::unknown_initial)
 	{
 		log_cheat.notice("convert_and_search: starting unknown_initial scan for type size=%u, max_entries=%u, range=0x%08X-0x%08X",
 			static_cast<u32>(sizeof(T)), MAX_INITIAL_SCAN_ENTRIES, mem_start, mem_end);
 
+		lbl_progress->setText(tr("Scanning memory..."));
+		progress_bar->setValue(0);
+		QApplication::processEvents();
+
 		// Use chunked scan to reduce memory pressure
 		const auto all_values = cheat_engine::scan_all_memory<T>(MAX_INITIAL_SCAN_ENTRIES, true, mem_start, mem_end);
+
+		lbl_progress->setText(tr("Done: %1 entries found").arg(all_values.size()));
+		progress_bar->setValue(100);
+		QApplication::processEvents();
 
 		log_cheat.notice("convert_and_search: unknown_initial got %zu entries from scan", all_values.size());
 
@@ -1677,7 +1697,15 @@ bool cheat_manager_dialog::convert_and_search()
 		}
 	}
 
+	lbl_progress->setText(tr("Searching..."));
+	progress_bar->setValue(0);
+	QApplication::processEvents();
+
 	std::vector<u32> new_results = cheat_engine::search(value, offsets_found, mode, value2, &prev_values, mem_start, mem_end);
+
+	lbl_progress->setText(tr("Done: %1 results").arg(new_results.size()));
+	progress_bar->setValue(100);
+	QApplication::processEvents();
 
 	if (!new_results.empty())
 	{
