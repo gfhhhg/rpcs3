@@ -98,7 +98,6 @@ protected:
 	QPushButton* btn_new_search = nullptr;
 	QPushButton* btn_filter_results = nullptr;
 
-	QProgressBar* progress_bar = nullptr;
 	QLabel* lbl_progress = nullptr;
 
 	u32 current_offset{};

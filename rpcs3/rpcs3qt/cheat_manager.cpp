@@ -8,6 +8,7 @@
 #include <QMenu>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QApplication>
 
 #include "cheat_manager.h"
 #include "memory_viewer_panel.h"
@@ -1091,17 +1092,11 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		}
 	});
 
-	// Progress bar
-	QHBoxLayout* progress_layout = new QHBoxLayout();
+	// Progress status label
 	lbl_progress = new QLabel(tr("Ready"));
 	lbl_progress->setAlignment(Qt::AlignLeft);
-	progress_bar = new QProgressBar();
-	progress_bar->setRange(0, 100);
-	progress_bar->setValue(0);
-	progress_bar->setTextVisible(false);
-	progress_layout->addWidget(lbl_progress);
-	progress_layout->addWidget(progress_bar);
-	grp_add_cheat_layout->addLayout(progress_layout);
+	lbl_progress->setStyleSheet("color: #666; font-size: 12px;");
+	grp_add_cheat_layout->addWidget(lbl_progress);
 
 	lst_search = new QListWidget(this);
 	lst_search->setSelectionMode(QAbstractItemView::SelectionMode::SingleSelection);
@@ -1604,14 +1599,12 @@ bool cheat_manager_dialog::convert_and_search()
 			static_cast<u32>(sizeof(T)), MAX_INITIAL_SCAN_ENTRIES, mem_start, mem_end);
 
 		lbl_progress->setText(tr("Scanning memory..."));
-		progress_bar->setValue(0);
 		QApplication::processEvents();
 
 		// Use chunked scan to reduce memory pressure
 		const auto all_values = cheat_engine::scan_all_memory<T>(MAX_INITIAL_SCAN_ENTRIES, true, mem_start, mem_end);
 
-		lbl_progress->setText(tr("Done: %1 entries found").arg(all_values.size()));
-		progress_bar->setValue(100);
+		lbl_progress->setText(tr("Scan complete: %1 entries found").arg(all_values.size()));
 		QApplication::processEvents();
 
 		log_cheat.notice("convert_and_search: unknown_initial got %zu entries from scan", all_values.size());
@@ -1698,13 +1691,11 @@ bool cheat_manager_dialog::convert_and_search()
 	}
 
 	lbl_progress->setText(tr("Searching..."));
-	progress_bar->setValue(0);
 	QApplication::processEvents();
 
 	std::vector<u32> new_results = cheat_engine::search(value, offsets_found, mode, value2, &prev_values, mem_start, mem_end);
 
-	lbl_progress->setText(tr("Done: %1 results").arg(new_results.size()));
-	progress_bar->setValue(100);
+	lbl_progress->setText(tr("Search complete: %1 results").arg(new_results.size()));
 	QApplication::processEvents();
 
 	if (!new_results.empty())
