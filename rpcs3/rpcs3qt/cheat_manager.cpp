@@ -1591,7 +1591,7 @@ bool cheat_manager_dialog::convert_and_search()
 	// For unknown_initial mode: use chunked scan with a reasonable limit
 	// to prevent memory exhaustion while still scanning enough addresses
 	// PS3 effective memory is 256MB (0x30000000~0x3FFFFFFF)
-	constexpr u32 MAX_INITIAL_SCAN_ENTRIES = 10000000; // 10 million entries max for unknown_initial
+	constexpr u32 MAX_INITIAL_SCAN_ENTRIES = 100000000; // 10 million entries max for unknown_initial
 
 	if (mode == search_compare_mode::unknown_initial)
 	{
